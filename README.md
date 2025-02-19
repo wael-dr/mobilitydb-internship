@@ -2,6 +2,15 @@
 
 This project is a tool for converting and visualizing geospatial data into 3D Tiles format for use in CesiumJS. The process involves creating a virtual environment, installing dependencies, and running several scripts to convert and serve the data.
 
+## To-Do List
+
+- [ ] **Fix the issue of white dots in Cesium**: Investigate and resolve the problem where the 3D models are not rendering correctly, showing up as white dots instead of the expected models.
+
+- [ ] **Improve performance of the Cesium interface**: Address the laggy behavior when interacting with the Cesium viewer, optimizing it for smoother performance.
+
+- [ ] **Speed up the conversion process**: Find ways to reduce the time it takes to convert geospatial data to 3D tiles, aiming to make the process faster and more efficient.
+
+
 ## Prerequisites
 
 Before you start, ensure that you have the following installed:
