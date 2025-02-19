@@ -79,12 +79,12 @@ Now, you can run the following scripts to convert the data into 3D Tiles:
 
 - **WGS84 Transformation Script**:
    ```bash
-   ./wgs84.sh
+   ./step1.sh
    ```
 
 - **GeoPackage to 3D Tiles Conversion Script**:
    ```bash
-   ./wgs84to3dtiles.sh
+   ./step2.sh
    ```
 
 ### 6. Serve the 3D Tiles
