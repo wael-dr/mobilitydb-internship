@@ -71,7 +71,7 @@ deactivate
 
 ### 4. Download Data
 
-You will need to download the GeoPackage data from the Brussels Datastore.
+You will need to download the GeoPackage data from the Brussels Datastore and rename it `bxl.gpkg`.
 
 ### 5. Run Scripts
 
