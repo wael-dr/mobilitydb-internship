@@ -4,11 +4,14 @@ This project is a tool for converting and visualizing geospatial data into 3D Ti
 
 ## To-Do List
 
-- [ ] **Fix the issue of white dots in Cesium**: Investigate and resolve the problem where the 3D models are not rendering correctly, showing up as white dots instead of the expected models.
+- [ ] **Fix white dots in Cesium**: Resolve issue where 3D models show as white dots instead of proper models.
 
-- [ ] **Improve performance of the Cesium interface**: Address the laggy behavior when interacting with the Cesium viewer, optimizing it for smoother performance.
+- [ ] **Optimize Cesium performance**: Address lag and improve interaction smoothness.
 
-- [ ] **Speed up the conversion process**: Find ways to reduce the time it takes to convert geospatial data to 3D tiles, aiming to make the process faster and more efficient.
+- [ ] **Speed up conversion**: Make the 3D tile conversion process faster.
+
+- [ ] **Fix missing Earth display**: Resolve issue with Earth not displaying, showing only black space.
+
 
 
 ## Prerequisites
