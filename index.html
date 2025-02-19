@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <title>Brussels 3D - White Buildings</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.80/Build/Cesium/Cesium.js"></script>
+    <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.80/Build/Cesium/Widgets/widgets.css">
+    <style>
+      html, body, #cesiumContainer {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: white; /* Set background color to white */
+      }
+
+      .cesium-widget {
+        background: white !important; /* Ensure widgets use a white background */
+        color: black !important; /* Make sure text is black on white */
+      }
+    </style>
+  </head>
+  <body>
+    <div id="cesiumContainer"></div>
+    <script>
+      // Initialize Cesium viewer
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+        terrainProvider: Cesium.WorldTerrain,  // Use WorldTerrain
+        timeline: false,   // Disable timeline
+        animation: false,  // Disable animation widget
+        shouldRequestRenderMode: true,
+      });
+
+      // Load the 3D tileset
+      const tileset = viewer.scene.primitives.add(
+        new Cesium.Cesium3DTileset({
+          url: './tiles/tileset.json'  // Path to your 3D Tiles JSON
+        })
+      );
+
+      // Apply a white color to the buildings
+      tileset.style = new Cesium.Cesium3DTileStyle({
+        color: 'color("white")'  // Set the color to white
+      });
+
+      // Zoom to tileset once it's ready
+      tileset.readyPromise
+        .then(function() {
+          viewer.zoomTo(tileset)
+            .catch(function(error) {
+              console.error('Zoom error:', error);
+            });
+        })
+        .catch(function(error) {
+          console.error('Tileset loading error:', error);
+        });
+
+      // Customize the view to start at a given location
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(4.3517, 50.8468, 2000),
+        orientation: {
+          heading: Cesium.Math.toRadians(45),
+          pitch: -0.5,
+        }
+      });
+    </script>
+  </body>
+</html>
