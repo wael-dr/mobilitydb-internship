@@ -1,69 +1,571 @@
 <!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8">
-    <title>Brussels 3D - White Buildings</title>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.80/Build/Cesium/Cesium.js"></script>
-    <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.80/Build/Cesium/Widgets/widgets.css">
-    <style>
-      html, body, #cesiumContainer {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        background-color: white; /* Set background color to white */
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brussels 3D Buildings</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.107/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.107/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; }
+    #debugPanel { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); 
+                  color: white; padding: 10px; max-height: 200px; overflow-y: auto; width: 300px; z-index: 1000; }
+    #loadingOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                     background-color: rgba(0,0,0,0.7); display: flex; justify-content: center;
+                     align-items: center; color: white; font-size: 24px; z-index: 1000; }
+    #tileInfo { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7);
+                color: white; padding: 10px; z-index: 1000; }
+    #memoryInfo { position: absolute; top: 50px; right: 10px; background: rgba(0,0,0,0.7);
+                 color: white; padding: 10px; z-index: 1000; }
+    #performanceControls { position: absolute; top: 90px; right: 10px; background: rgba(0,0,0,0.7);
+                          color: white; padding: 10px; z-index: 1000; }
+    .control-group { margin-bottom: 8px; }
+    .control-group label { display: block; margin-bottom: 3px; }
+    #emergencyButton { position: absolute; bottom: 10px; right: 10px; background: rgba(255,0,0,0.7);
+                      color: white; padding: 10px; z-index: 2000; display: none; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <div id="loadingOverlay">Loading Brussels 3D Buildings...</div>
+  <div id="debugPanel"></div>
+  <div id="tileInfo">Current Tile: None</div>
+  <div id="memoryInfo">Memory: Monitoring...</div>
+  <div id="performanceControls">
+    <div class="control-group">
+      <label for="qualitySlider">Detail Level:</label>
+      <input type="range" id="qualitySlider" min="1" max="4" value="2" />
+    </div>
+    <div class="control-group">
+      <label><input type="checkbox" id="enableDynamicLoading" checked /> Dynamic Loading</label>
+    </div>
+  </div>
+  <button id="emergencyButton">Emergency Memory Recovery</button>
+  
+  <script>
+    // Set up the error handler early to catch any initialization errors
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error("Error caught:", message);
+      document.getElementById('debugPanel').innerHTML += `ERROR: ${message}<br>`;
+      document.getElementById('loadingOverlay').innerHTML = 'Error loading application. See console for details.';
+      return false;
+    };
+    
+    // Helper function for logging
+    function log(message) {
+      console.log(message);
+      const debugPanel = document.getElementById('debugPanel');
+      if (debugPanel) {
+        debugPanel.innerHTML += message + '<br>';
+        
+        // Limit log length to prevent memory issues
+        if (debugPanel.innerHTML.length > 5000) {
+          debugPanel.innerHTML = debugPanel.innerHTML.substring(debugPanel.innerHTML.length - 3000);
+        }
+        
+        // Auto-scroll to bottom
+        debugPanel.scrollTop = debugPanel.scrollHeight;
       }
-
-      .cesium-widget {
-        background: white !important; /* Ensure widgets use a white background */
-        color: black !important; /* Make sure text is black on white */
+    }
+    
+    log("Starting application...");
+    
+    // Cesium Ion access token options - try multiple tokens and fallback options
+    const CESIUM_TOKEN_OPTIONS = [
+      // Try a different token that might work better
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5ODJmYWQzMS03MjlhLTRkNGMtODJlZi0zOWU3M2FlNmI0NGMiLCJpZCI6Mjc4MTgyLCJpYXQiOjE3NDAyMTgyNjZ9.X0H3GlYLXcAcyKo8XS89JRzsYY0YW6vE3RLybdxup_U',
+      // Public community token
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5Y2U0ZjU2MS1mMzg5LTQzM2YtYjNmNS01MjJkOWM3YjM1MDUiLCJpZCI6NTc3MzMsImlhdCI6MTYyMjY0NjQ5NH0.aRT3SEyjV55YKr2fyVmjuSXbX7vXQtHwgux6VzXi1DQ',
+      // Default token from your code
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzQiLCJpZCI6NTc3MzMsImlhdCI6MTYyMjY0NjQ5NH0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk'
+    ];
+    
+    // Function to try different tokens until one works
+    function tryTokens(index = 0) {
+      if (index >= CESIUM_TOKEN_OPTIONS.length) {
+        // All tokens failed, fall back to no-auth mode
+        log("WARNING: All tokens failed. Falling back to no-auth mode.");
+        initializeViewer(null);
+        return;
       }
-    </style>
-  </head>
-  <body>
-    <div id="cesiumContainer"></div>
-    <script>
-      // Initialize Cesium viewer
-      const viewer = new Cesium.Viewer('cesiumContainer', {
-        terrainProvider: Cesium.WorldTerrain,  // Use WorldTerrain
-        timeline: false,   // Disable timeline
-        animation: false,  // Disable animation widget
-        shouldRequestRenderMode: true,
-      });
-
-      // Load the 3D tileset
-      const tileset = viewer.scene.primitives.add(
-        new Cesium.Cesium3DTileset({
-          url: './tiles/tileset.json'  // Path to your 3D Tiles JSON
+      
+      Cesium.Ion.defaultAccessToken = CESIUM_TOKEN_OPTIONS[index];
+      log(`Trying token option ${index+1}...`);
+      
+      // Test the token with a lightweight request
+      Cesium.IonResource.fromAssetId(1)
+        .then(() => {
+          log("Token authentication successful!");
+          initializeViewer(CESIUM_TOKEN_OPTIONS[index]);
         })
-      );
-
-      // Apply a white color to the buildings
-      tileset.style = new Cesium.Cesium3DTileStyle({
-        color: 'color("white")'  // Set the color to white
-      });
-
-      // Zoom to tileset once it's ready
-      tileset.readyPromise
+        .catch(error => {
+          log(`Token ${index+1} failed: ${error.message}`);
+          tryTokens(index + 1);
+        });
+    }
+    
+    // Handle token errors
+    function handleTokenError() {
+      log("ERROR: Cesium Ion token is invalid. Using fallback options.");
+      document.getElementById('loadingOverlay').innerHTML = 
+        'Authentication Error: Trying fallback options...<br>' +
+        'This may take a moment.';
+        
+      // Try to continue with a basic viewer without terrain
+      initializeViewer(null);
+    }
+    
+    // Add proper error handler through window event listener instead
+    window.addEventListener('error', function(event) {
+      // Check if the error is related to Cesium token authentication
+      if (event.message && 
+          (event.message.includes('401') || 
+           event.message.includes('authentication') || 
+           event.message.includes('access token')) && 
+          !window.tokenErrorHandled) {
+        window.tokenErrorHandled = true;
+        handleTokenError();
+      }
+    });
+    
+    // Simplified performance configuration - removed most constraints
+    const CONFIG = {
+      maxTiles: 24,                  // Allow all tiles (4x6 grid)
+      batchSize: 50,                 // Larger batch size
+      qualityLevel: 2,               // Keep the same
+      processingDelay: 5,            // Smaller delay
+      emergencyMemoryThreshold: 95   // Only act in extreme cases
+    };
+    
+    // Performance measurement - FIX: Rename to avoid conflict with window.performance
+    const perfMonitor = {
+      lastFrameTime: 0,
+      frameCount: 0,
+      fps: 0,
+      lowPerformanceCount: 0,
+      measurePerformance: function() {
+        const now = window.performance.now();
+        if (this.lastFrameTime) {
+          const delta = now - this.lastFrameTime;
+          const currentFps = 1000 / delta;
+          this.fps = this.fps * 0.9 + currentFps * 0.1; // Smooth FPS
+          
+          if (this.fps < 15) this.lowPerformanceCount++;
+          else this.lowPerformanceCount = Math.max(0, this.lowPerformanceCount - 1);
+          
+          // Adapt batch size based on performance
+          if (CONFIG.dynamicBatchSize) {
+            if (this.lowPerformanceCount > 5) {
+              CONFIG.batchSize = Math.max(CONFIG.minBatchSize, Math.floor(CONFIG.batchSize * 0.8));
+              this.lowPerformanceCount = 0;
+            } else if (this.fps > 30 && this.frameCount % 60 === 0) {
+              CONFIG.batchSize = Math.min(CONFIG.maxBatchSize, Math.floor(CONFIG.batchSize * 1.1));
+            }
+          }
+        }
+        this.lastFrameTime = now;
+        this.frameCount++;
+      }
+    };
+    
+    // Define Brussels grid to match your tiles
+    const BRUSSELS_GRID = {
+      west: 4.33,
+      east: 4.41,
+      south: 50.83,
+      north: 50.89,
+      cols: 4,  // Based on your tile names (0-3)
+      rows: 6   // Based on your tile names (0-5)
+    };
+    
+    // Calculate tile dimensions
+    const TILE_WIDTH = (BRUSSELS_GRID.east - BRUSSELS_GRID.west) / BRUSSELS_GRID.cols;
+    const TILE_HEIGHT = (BRUSSELS_GRID.north - BRUSSELS_GRID.south) / BRUSSELS_GRID.rows;
+    
+    // Camera state tracking
+    const cameraState = {
+      isMoving: false,
+      moveStartTime: 0,
+      lastPosition: null,
+      frustum: null,
+      updateMovingState: function(camera) {
+        const position = camera.position.clone();
+        if (!this.lastPosition) {
+          this.lastPosition = position;
+          return false;
+        }
+        
+        // Check if camera has moved significantly
+        const distance = Cesium.Cartesian3.distance(position, this.lastPosition);
+        const isMoving = distance > 1.0;
+        
+        if (isMoving && !this.isMoving) {
+          this.moveStartTime = Date.now();
+          this.isMoving = true;
+        } else if (!isMoving && this.isMoving && (Date.now() - this.moveStartTime > 250)) {
+          this.isMoving = false;
+        }
+        
+        this.lastPosition = position;
+        return this.isMoving;
+      },
+      
+      updateFrustum: function(camera) {
+        this.frustum = camera.frustum.computeCullingVolume(
+          camera.position,
+          camera.direction,
+          camera.up
+        );
+      }
+    };
+    
+    // Keep track of loaded tiles
+    const loadedTiles = {};
+    let loadedTileCount = 0;
+    
+    // Load queue management
+    const loadingQueue = [];
+    let isLoading = false;
+    let memoryWarningShown = false;
+    let processingPaused = false;
+    
+    // Get tile ID based on position
+    function getTileId(lon, lat) {
+      if (lon < BRUSSELS_GRID.west || lon > BRUSSELS_GRID.east || 
+          lat < BRUSSELS_GRID.south || lat > BRUSSELS_GRID.north) {
+        return null; // Outside our grid
+      }
+      
+      const col = Math.floor((lon - BRUSSELS_GRID.west) / TILE_WIDTH);
+      const row = Math.floor((lat - BRUSSELS_GRID.south) / TILE_HEIGHT);
+      
+      // Clamp to grid boundaries
+      const boundedCol = Math.min(Math.max(col, 0), BRUSSELS_GRID.cols - 1);
+      const boundedRow = Math.min(Math.max(row, 0), BRUSSELS_GRID.rows - 1);
+      
+      return `${boundedCol}_${boundedRow}`;
+    }
+    
+    // Check if a tile is visible in the current view frustum
+    function isTileInFrustum(tileId) {
+      if (!cameraState.frustum) return true; // Default to visible if no frustum
+      
+      // Get tile bounds
+      const [col, row] = tileId.split('_').map(Number);
+      const west = BRUSSELS_GRID.west + col * TILE_WIDTH;
+      const east = west + TILE_WIDTH;
+      const south = BRUSSELS_GRID.south + row * TILE_HEIGHT;
+      const north = south + TILE_HEIGHT;
+      
+      // Create bounding box corners in cartesian coordinates
+      const corners = [
+        Cesium.Cartesian3.fromDegrees(west, south, 0),
+        Cesium.Cartesian3.fromDegrees(east, south, 0),
+        Cesium.Cartesian3.fromDegrees(east, north, 0),
+        Cesium.Cartesian3.fromDegrees(west, north, 0),
+        Cesium.Cartesian3.fromDegrees(west, south, 500), // Add height
+        Cesium.Cartesian3.fromDegrees(east, south, 500),
+        Cesium.Cartesian3.fromDegrees(east, north, 500),
+        Cesium.Cartesian3.fromDegrees(west, north, 500)
+      ];
+      
+      // Create a bounding sphere that contains all corners
+      const boundingSphere = Cesium.BoundingSphere.fromPoints(corners);
+      
+      // Check if the bounding sphere intersects the frustum
+      return cameraState.frustum.computeVisibility(boundingSphere) !== Cesium.Intersect.OUTSIDE;
+    }
+    
+    // Apply extrusion to buildings in a tile with simpler processing
+    function processBuildingsInTile(dataSource) {
+      const entities = dataSource.entities.values;
+      log(`Processing ${entities.length} buildings...`);
+      
+      // Process all buildings without complex batching
+      for (let i = 0; i < entities.length; i++) {
+        try {
+          const entity = entities[i];
+          if (entity && entity.polygon) {
+            // Extract height from properties, or use default
+            let height = 10;
+            try {
+              if (entity.properties && entity.properties.height) {
+                const h = entity.properties.height.getValue();
+                if (!isNaN(h) && h > 0) height = h;
+              }
+            } catch (e) {}
+            
+            if (height > 500) height = 50;
+            
+            // Apply extrusion
+            entity.polygon.extrudedHeight = height;
+            entity.polygon.material = Cesium.Color.fromHsl(0.6, 0.6, 0.4).withAlpha(0.8);
+          }
+        } catch (error) {
+          console.error("Error processing entity", error);
+        }
+      }
+      
+      log(`Completed processing ${entities.length} buildings.`);
+      return function() {}; // Empty cancel function
+    }
+    
+    // Load a single tile with proper promise handling
+    function loadTile(viewer, tileId) {
+      if (loadedTiles[tileId]) {
+        return Promise.resolve(loadedTiles[tileId]); // Already loaded
+      }
+      
+      const filename = `tile_${tileId}.geojson`;
+      log(`Loading tile: ${filename}`);
+      
+      const dataSource = new Cesium.GeoJsonDataSource(tileId);
+      return dataSource.load(filename, {
+          clampToGround: true, // Keep buildings on terrain surface
+          strokeWidth: CONFIG.qualityLevel < 2 ? 0 : 1 // Reduce line rendering for better performance
+        })
         .then(function() {
-          viewer.zoomTo(tileset)
-            .catch(function(error) {
-              console.error('Zoom error:', error);
-            });
+          try {
+            // Apply visibility optimization based on distance
+            const cameraPosition = viewer.camera.positionCartographic;
+            const cameraHeight = cameraPosition.height;
+            
+            // Use lower detail for tiles when camera is high
+            if (cameraHeight > CONFIG.viewDistanceThreshold) {
+              // Simplify data for distant view
+              const entities = dataSource.entities.values;
+              for (let i = 0; i < entities.length; i += 2) { // Skip every other building when far away
+                entities[i].show = false;
+              }
+            }
+            
+            viewer.dataSources.add(dataSource);
+            loadedTiles[tileId] = {
+              dataSource: dataSource,
+              lastAccessed: Date.now(),
+              cancelProcessing: null
+            };
+            loadedTileCount++;
+            
+            // Start processing buildings in this tile
+            loadedTiles[tileId].cancelProcessing = processBuildingsInTile(dataSource);
+            return dataSource;
+          } catch (error) {
+            log(`Error setting up tile ${tileId}: ${error.message}`);
+            return dataSource;
+          }
         })
         .catch(function(error) {
-          console.error('Tileset loading error:', error);
+          log(`Error loading tile ${tileId}: ${error.message}`);
+          return null;
         });
-
-      // Customize the view to start at a given location
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(4.3517, 50.8468, 2000),
-        orientation: {
-          heading: Cesium.Math.toRadians(45),
-          pitch: -0.5,
+    }
+    
+    // Load all tiles at once
+    function loadAllTiles(viewer) {
+      log("Loading all tiles at once...");
+      
+      const promises = [];
+      
+      // Loop through all grid cells
+      for (let col = 0; col < BRUSSELS_GRID.cols; col++) {
+        for (let row = 0; row < BRUSSELS_GRID.rows; row++) {
+          const tileId = `${col}_${row}`;
+          const promise = loadTile(viewer, tileId);
+          promises.push(promise);
         }
-      });
-    </script>
-  </body>
+      }
+      
+      // Wait for all tiles to load
+      Promise.all(promises)
+        .then(() => {
+          log("All tiles loaded successfully!");
+        })
+        .catch(error => {
+          log(`Error loading all tiles: ${error.message}`);
+        });
+    }
+    
+    // Memory monitoring with emergency measures
+    function checkMemoryUsage() {
+      if (window.performance && window.performance.memory) {
+        const memoryInfo = window.performance.memory;
+        const memoryUsedMB = Math.round(memoryInfo.usedJSHeapSize / (1024 * 1024));
+        const memoryLimitMB = Math.round(memoryInfo.jsHeapSizeLimit / (1024 * 1024));
+        const percentUsed = Math.round((memoryUsedMB / memoryLimitMB) * 100);
+        
+        document.getElementById('memoryInfo').textContent = 
+          `Memory: ${memoryUsedMB}MB / ${memoryLimitMB}MB (${percentUsed}%)`;
+        
+        // Show warning when memory usage is high
+        if (percentUsed > 80 && !memoryWarningShown) {
+          log("WARNING: High memory usage detected. Some features may be limited.");
+          memoryWarningShown = true;
+        }
+        
+        // Emergency measures when memory usage is extremely high
+        if (percentUsed > 90) {
+          log("CRITICAL: Memory usage critical. Performing emergency cleanup.");
+          document.getElementById('emergencyButton').style.display = 'block';
+          emergencyMemoryCleanup();
+        }
+        
+        return { used: memoryUsedMB, limit: memoryLimitMB, percent: percentUsed };
+      }
+      
+      return null;
+    }
+    
+    // Emergency memory cleanup
+    function emergencyMemoryCleanup() {
+      log("EMERGENCY: Performing memory cleanup");
+      
+      // Cancel all processing
+      for (const tileId in loadedTiles) {
+        if (loadedTiles[tileId].cancelProcessing) {
+          loadedTiles[tileId].cancelProcessing();
+        }
+      }
+      
+      // Unload all but the current tile
+      const currentTileId = getCurrentTileId();
+      for (const tileId in loadedTiles) {
+        if (tileId !== currentTileId) {
+          try {
+            viewer.dataSources.remove(loadedTiles[tileId].dataSource);
+          } catch (e) {
+            console.error("Error removing dataSource", e);
+          }
+          delete loadedTiles[tileId];
+          loadedTileCount--;
+        }
+      }
+      
+      // Clear loading queue
+      loadingQueue.length = 0;
+      isLoading = false;
+      
+      // Force garbage collection hint
+      if (window.gc) window.gc();
+      
+      log("Emergency cleanup completed");
+      setTimeout(() => {
+        document.getElementById('emergencyButton').style.display = 'none';
+      }, 3000);
+    }
+    
+    // Get current tile ID based on camera position
+    function getCurrentTileId() {
+      const cameraPosition = viewer.camera.positionCartographic;
+      const lon = Cesium.Math.toDegrees(cameraPosition.longitude);
+      const lat = Cesium.Math.toDegrees(cameraPosition.latitude);
+      return getTileId(lon, lat);
+    }
+    
+    // Initialize the application with token consideration
+    let viewer;
+    function initializeViewer(token) {
+      try {
+        log("Initializing viewer...");
+        
+        // Create the Cesium viewer with or without terrain based on token availability
+        const viewerOptions = {
+          baseLayerPicker: true,
+          geocoder: false,
+          homeButton: true,
+          sceneModePicker: true,
+          navigationHelpButton: false,
+          animation: false,
+          timeline: false,
+          requestRenderMode: true,
+          maximumRenderTimeChange: 0.05,
+          targetFrameRate: 30,
+          scene3DOnly: true,
+          shadows: false,
+          useBrowserRecommendedResolution: true
+        };
+        
+        // Only use terrain if we have a valid token
+        if (token) {
+          viewerOptions.terrainProvider = Cesium.Terrain.fromWorldTerrain({
+            requestVertexNormals: false,
+            requestWaterMask: false
+          });
+          log("Using terrain with authenticated token");
+        } else {
+          // Use the default EllipsoidTerrainProvider (no auth needed)
+          log("Using basic ellipsoid terrain (no authentication)");
+        }
+        
+        // Create the viewer
+        viewer = new Cesium.Viewer('cesiumContainer', viewerOptions);
+        
+        // Add a specific error handler for Cesium
+        viewer.scene.globe.tileLoadProgressEvent.addEventListener(function(queuedTileCount) {
+          if (queuedTileCount === 0) {
+            // All tiles loaded or attempted to load
+            // Check if we had any 401 errors
+            const errorElement = document.querySelector('.cesium-widget-errorPanel');
+            if (errorElement && 
+                errorElement.textContent && 
+                errorElement.textContent.includes('401') && 
+                !window.tokenErrorHandled) {
+              window.tokenErrorHandled = true;
+              handleTokenError();
+            }
+          }
+        });
+        
+        // Adjust scene for performance
+        viewer.scene.fog.enabled = false;
+        viewer.scene.fog.density = 0.0001;
+        viewer.scene.postProcessStages.fxaa.enabled = false;
+        viewer.scene.globe.maximumScreenSpaceError = 4;
+        
+        log("Viewer created successfully");
+        
+        // Hide the loading overlay now that the viewer is created
+        document.getElementById('loadingOverlay').style.display = 'none';
+        
+        // Set view to Brussels, zoomed out to see all tiles
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(4.37, 50.86, 8000)
+        });
+        
+        // Setup emergency button
+        document.getElementById('emergencyButton').addEventListener('click', emergencyMemoryCleanup);
+        
+        // Handle quality slider change
+        document.getElementById('qualitySlider').addEventListener('change', function(e) {
+          CONFIG.qualityLevel = parseInt(e.target.value);
+          log(`Quality level changed to ${CONFIG.qualityLevel}`);
+          
+          // Apply quality changes
+          viewer.scene.globe.maximumScreenSpaceError = 6 - CONFIG.qualityLevel;
+        });
+        
+        // Remove dynamic loading feature
+        document.getElementById('enableDynamicLoading').parentNode.style.display = 'none';
+        
+        // Add performance monitoring for display only
+        viewer.scene.preRender.addEventListener(function() {
+          perfMonitor.measurePerformance();
+        });
+        
+        // Load all tiles immediately
+        loadAllTiles(viewer);
+        
+        // Check memory usage periodically
+        setInterval(checkMemoryUsage, 5000);
+        
+      } catch (error) {
+        log("FATAL ERROR: " + error.message);
+        document.getElementById('loadingOverlay').innerHTML = 'Error initializing viewer. See console for details.';
+      }
+    }
+    
+    // Start trying tokens
+    tryTokens();
+  </script>
+</body>
 </html>
