@@ -1,0 +1,42 @@
+# GeoPackage files
+*.gpkg
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Log files
+*.log
+
+# JSON cache files
+vehicle_positions.json
+last_raw_response.json
+
+# Tiles
+tile_*.geojson
+tiles/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Local configuration
+.env
+.idea/
+.vscode/

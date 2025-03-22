@@ -46,4 +46,23 @@ if [ -d tiles ]; then
   fi
 fi
 
+# Remove JSON cache files
+echo "Removing JSON cache files..."
+rm -f vehicle_positions.json last_raw_response.json
+if [ ! -f vehicle_positions.json ] && [ ! -f last_raw_response.json ]; then
+  echo "✓ JSON cache files removed"
+else
+  echo "! Some JSON cache files could not be removed"
+fi
+
+# Remove log files
+echo "Removing log files..."
+rm -f *.log
+LOG_COUNT=$(ls -1 *.log 2>/dev/null | wc -l)
+if [ "$LOG_COUNT" -eq 0 ]; then
+  echo "✓ All log files removed"
+else
+  echo "! Some log files could not be removed"
+fi
+
 echo "Cleanup completed! Only original data preserved."
