@@ -65,4 +65,14 @@ else
   echo "! Some log files could not be removed"
 fi
 
+# Remove PID files
+echo "Removing PID files..."
+rm -f *.pid
+PID_COUNT=$(ls -1 *.pid 2>/dev/null | wc -l)
+if [ "$PID_COUNT" -eq 0 ]; then
+  echo "✓ All PID files removed"
+else
+  echo "! Some PID files could not be removed"
+fi
+
 echo "Cleanup completed! Only original data preserved."
