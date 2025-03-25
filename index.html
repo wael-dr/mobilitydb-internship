@@ -7,47 +7,37 @@
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.107/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.107/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
+    @import url(../templates/bucket.css);
     html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; }
     #debugPanel { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); 
                   color: white; padding: 10px; max-height: 200px; overflow-y: auto; width: 300px; z-index: 1000; }
     #loadingOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
                      background-color: rgba(0,0,0,0.7); display: flex; justify-content: center;
                      align-items: center; color: white; font-size: 24px; z-index: 1000; }
-    #tileInfo { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7);
-                color: white; padding: 10px; z-index: 1000; }
-    #memoryInfo { position: absolute; top: 50px; right: 10px; background: rgba(0,0,0,0.7);
-                 color: white; padding: 10px; z-index: 1000; }
-    #performanceControls { position: absolute; top: 90px; right: 10px; background: rgba(0,0,0,0.7);
+    #performanceControls { position: absolute; top: 90px; left: 10px; background: rgba(0,0,0,0.7);
                           color: white; padding: 10px; z-index: 1000; }
     .control-group { margin-bottom: 8px; }
     .control-group label { display: block; margin-bottom: 3px; }
-    #emergencyButton { position: absolute; bottom: 10px; right: 10px; background: rgba(255,0,0,0.7);
+    #emergencyButton { position: absolute; bottom: 10px; left: 320px; background: rgba(255,0,0,0.7);
                       color: white; padding: 10px; z-index: 2000; display: none; }
     
     /* Mobility styling */
-    #vehicleControls { position: absolute; top: 180px; right: 10px; background: rgba(0,0,0,0.7);
+    #vehicleControls { position: absolute; top: 140px; left: 10px; background: rgba(0,0,0,0.7);
                       color: white; padding: 10px; z-index: 1000; width: 250px; }
-    #vehicleInfo { position: absolute; bottom: 10px; right: 180px; background: rgba(0,0,0,0.7);
+    #vehicleInfo { position: absolute; bottom: 10px; left: 320px; background: rgba(0,0,0,0.7);
                   color: white; padding: 10px; z-index: 1000; display: none; width: 300px; }
-    #timeControls { position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
-                   background: rgba(0,0,0,0.7); color: white; padding: 10px; z-index: 1000;
-                   display: flex; flex-direction: column; align-items: center; }
+    #timeControls { display: none; }
     .vehicle-type-toggle { margin: 5px; }
     #dataStatus { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,0.7);
                  color: white; padding: 5px 10px; z-index: 1000; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div id="cesiumContainer"></div>
+  <div id="cesiumContainer" class="fullSize"></div>
   <div id="loadingOverlay">Loading Brussels 3D Buildings...</div>
+  <div id="toolbar"></div>
   <div id="debugPanel"></div>
-  <div id="tileInfo">Current Tile: None</div>
-  <div id="memoryInfo">Memory: Monitoring...</div>
   <div id="performanceControls">
-    <div class="control-group">
-      <label for="qualitySlider">Detail Level:</label>
-      <input type="range" id="qualitySlider" min="1" max="4" value="2" />
-    </div>
     <div class="control-group">
       <label><input type="checkbox" id="enableDynamicLoading" checked /> Dynamic Loading</label>
     </div>
@@ -91,20 +81,14 @@
     <button id="closeVehicleInfo">Close</button>
   </div>
   
-  <div id="timeControls">
-    <div>
-      <label><input type="checkbox" id="liveMode" checked /> Live Mode</label>
-      <button id="playPauseButton">Pause</button>
-    </div>
-    <div>
-      <input type="range" id="timeSlider" min="0" max="100" value="100" style="width: 300px;" disabled />
-    </div>
-    <div id="timeDisplay">Current Time: Live</div>
+  <div id="timeControls" style="display: none;">
+    <!-- This content is now hidden -->
   </div>
   
   <div id="dataStatus">Data: Not Connected</div>
   
   <script src="mobility.js"></script>
+  <script src="cesium.js"></script>
   <script>
     // Set up the error handler early to catch any initialization errors
     window.onerror = function(message, source, lineno, colno, error) {
@@ -136,11 +120,7 @@
     // Cesium Ion access token options - try multiple tokens and fallback options
     const CESIUM_TOKEN_OPTIONS = [
       // Try a different token that might work better
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5ODJmYWQzMS03MjlhLTRkNGMtODJlZi0zOWU3M2FlNmI0NGMiLCJpZCI6Mjc4MTgyLCJpYXQiOjE3NDAyMTgyNjZ9.X0H3GlYLXcAcyKo8XS89JRzsYY0YW6vE3RLybdxup_U',
-      // Public community token
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5Y2U0ZjU2MS1mMzg5LTQzM2YtYjNmNS01MjJkOWM3YjM1MDUiLCJpZCI6NTc3MzMsImlhdCI6MTYyMjY0NjQ5NH0.aRT3SEyjV55YKr2fyVmjuSXbX7vXQtHwgux6VzXi1DQ',
-      // Default token from your code
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzQiLCJpZCI6NTc3MzMsImlhdCI6MTYyMjY0NjQ5NH0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk'
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5ODJmYWQzMS03MjlhLTRkNGMtODJlZi0zOWU3M2FlNmI0NGMiLCJpZCI6Mjc4MTgyLCJpYXQiOjE3NDAyMTgyNjZ9.X0H3GlYLXcAcyKo8XS89JRzsYY0YW6vE3RLybdxup_U'
     ];
     
     // Function to try different tokens until one works
@@ -553,6 +533,23 @@
         // Create the viewer
         viewer = new Cesium.Viewer('cesiumContainer', viewerOptions);
         
+        // Initialize Cesium utilities with our viewer instance
+        if (window.CesiumUtils && typeof window.CesiumUtils.initCesiumUtils === 'function') {
+          const cesiumUtils = window.CesiumUtils.initCesiumUtils(viewer);
+          log("Cesium utilities initialized");
+          
+          // Use the optimizeScene function from cesium.js
+          cesiumUtils.optimizeScene();
+        } else {
+          log("WARNING: Cesium utilities not available");
+          
+          // Fallback to inline optimization
+          viewer.scene.fog.enabled = false;
+          viewer.scene.fog.density = 0.0001;
+          viewer.scene.postProcessStages.fxaa.enabled = false;
+          viewer.scene.globe.maximumScreenSpaceError = 4;
+        }
+        
         // Add a specific error handler for Cesium
         viewer.scene.globe.tileLoadProgressEvent.addEventListener(function(queuedTileCount) {
           if (queuedTileCount === 0) {
@@ -575,7 +572,62 @@
         viewer.scene.postProcessStages.fxaa.enabled = false;
         viewer.scene.globe.maximumScreenSpaceError = 4;
         
-        log("Viewer created successfully");
+        // Ensure globe is visible with explicit settings
+        viewer.scene.globe.show = true;
+        viewer.scene.mode = Cesium.SceneMode.SCENE3D;
+        
+        // Add an explicit imagery layer if none exists
+        if (viewer.imageryLayers.length === 0) {
+          viewer.imageryLayers.addImageryProvider(
+            new Cesium.IonImageryProvider({ assetId: 3 }) // Bing Maps Aerial
+          );
+        }
+        
+        // Set view to see the globe
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(4.37, 0, 20000000),
+          orientation: {
+            heading: 0,
+            pitch: -Math.PI/2,
+            roll: 0
+          }
+        });
+        
+        // Add a button to toggle between globe and Brussels
+        const globeButton = document.createElement('button');
+        globeButton.textContent = 'Toggle Globe/Brussels';
+        globeButton.style.position = 'absolute';
+        globeButton.style.top = '130px';
+        globeButton.style.right = '10px';
+        globeButton.style.zIndex = '1000';
+        globeButton.style.padding = '5px 10px';
+        globeButton.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        globeButton.style.color = 'white';
+        globeButton.style.border = 'none';
+        document.body.appendChild(globeButton);
+        
+        let showingGlobe = false;
+        globeButton.addEventListener('click', function() {
+          if (showingGlobe) {
+            // Return to Brussels
+            viewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(4.37, 50.86, 8000)
+            });
+          } else {
+            // Show globe
+            viewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(4.37, 0, 20000000),
+              orientation: {
+                heading: 0,
+                pitch: -Math.PI/2,
+                roll: 0
+              }
+            });
+          }
+          showingGlobe = !showingGlobe;
+        });
+        
+        log("Viewer created successfully with globe enabled");
         
         // Hide the loading overlay now that the viewer is created
         document.getElementById('loadingOverlay').style.display = 'none';
@@ -594,14 +646,14 @@
           }
         });
         
-        // Handle quality slider change
-        document.getElementById('qualitySlider').addEventListener('change', function(e) {
-          CONFIG.qualityLevel = parseInt(e.target.value);
-          log(`Quality level changed to ${CONFIG.qualityLevel}`);
-          
-          // Apply quality changes
-          viewer.scene.globe.maximumScreenSpaceError = 6 - CONFIG.qualityLevel;
-        });
+        // Remove quality slider event handler
+        // document.getElementById('qualitySlider').addEventListener('change', function(e) {
+        //   CONFIG.qualityLevel = parseInt(e.target.value);
+        //   log(`Quality level changed to ${CONFIG.qualityLevel}`);
+        //   
+        //   // Apply quality changes
+        //   viewer.scene.globe.maximumScreenSpaceError = 6 - CONFIG.qualityLevel;
+        // });
         
         // Remove dynamic loading feature
         document.getElementById('enableDynamicLoading').parentNode.style.display = 'none';

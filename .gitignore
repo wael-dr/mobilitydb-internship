@@ -18,6 +18,9 @@ __pycache__/
 # Log files
 *.log
 
+# PID files
+*.pid
+
 # JSON cache files
 vehicle_positions.json
 last_raw_response.json
