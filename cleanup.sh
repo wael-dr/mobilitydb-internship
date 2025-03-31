@@ -2,16 +2,6 @@
 
 echo "Starting cleanup process..."
 
-# Remove all tile GeoJSON files
-echo "Removing tile GeoJSON files..."
-rm -f tile_*.geojson
-TILE_COUNT=$(ls -1 tile_*.geojson 2>/dev/null | wc -l)
-if [ "$TILE_COUNT" -eq 0 ]; then
-  echo "✓ All tile GeoJSON files removed"
-else
-  echo "! Some tile GeoJSON files could not be removed"
-fi
-
 # Remove reprojected GPKG files
 echo "Removing reprojected GeoPackage files..."
 rm -f bxl_wgs84.gpkg
@@ -35,15 +25,11 @@ else
   echo "! Original bxl.gpkg file not found"
 fi
 
-# Remove tiles directory if it exists
-if [ -d tiles ]; then
-  echo "Removing tiles directory..."
-  rm -rf tiles
-  if [ ! -d tiles ]; then
-    echo "✓ tiles directory removed"
-  else
-    echo "! Failed to remove tiles directory"
-  fi
+# Check if GEOJSON files exist
+if [ -f tile_full.geojson ]; then
+  echo "✓ Original tile_full.geojson file preserved"
+else
+  echo "! Original tile_full.geojson file not found"
 fi
 
 # Remove JSON cache files
