@@ -13,28 +13,35 @@ Interactive 3D visualization of Brussels buildings with real-time public transpo
 
 1. Prepare data:
    ```bash
+   # Convert the Geopackage from EPSG:31370 (Belgian Lambert 72)
+   # to EPSG:4326 (WGS 84), the standard system
    ./first.sh
    
-   # Create a virtual environment
+   # Set up an isolated Python environment for dependencies
    python3 -m venv venv
    
    # Activate the virtual environment
    source venv/bin/activate
    
-   # Now run the Python script in the virtual environment
+   # Extract height (Z) values from 3D geometries
+   # and add them as a new field
    python3 second.py
-   
+
+   # Convert to GeoJSON
    ./generate_tiles.sh
    ```
 
 2. Start server and view:
    ```bash
+   # Start fetching data from the Brussels Mobility API 
    ./start_server.sh
+   
    http-server --cors -p 8000
    ```
 
 3. When finished:
    ```bash
    ./stop_server.sh
+   
    ./cleanup.sh  # Optional: removes temp files
    ```
