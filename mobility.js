@@ -9,7 +9,7 @@ const MOBILITY_CONFIG = {
   updateInterval: 10000, // 10 seconds
   retryDelay: 3000,      // 3 seconds
   maxRetries: 3,
-  vehicleHeightOffset: 10, // meters above ground
+  vehicleHeightOffset: 1, // meters above ground
   interpolationPoints: 60, // points to generate between positions
   maxVehicles: 200,        // maximum vehicles to display for performance
   defaultVehicleScale: 1.5,
