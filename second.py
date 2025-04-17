@@ -34,9 +34,11 @@ def extract_z_from_multipolygon(multi_geom):
                 if interior_coords and len(interior_coords[0]) > 2:
                     z_values.extend([p[2] for p in interior_coords])
         
-        # Return mean Z if we found any
+        # Calculate building height as difference between max and min Z values
         if z_values:
-            return np.mean(z_values)
+            min_z = min(z_values)
+            max_z = max(z_values)
+            return max_z - min_z  # Return relative height instead of mean
         else:
             return None
     except Exception as e:
