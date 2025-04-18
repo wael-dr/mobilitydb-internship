@@ -187,6 +187,76 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
                 f.write(response.text)
             
             data = response.json()
+            
+            # Process and enhance the data to ensure vehicle types are preserved
+            if 'features' in data and isinstance(data['features'], list):
+                logger.info(f"Processing {len(data['features'])} features for vehicle type detection")
+                
+                # Print the first feature for debugging
+                if len(data['features']) > 0 and 'properties' in data['features'][0]:
+                    logger.info(f"Sample feature properties: {data['features'][0]['properties']}")
+                    
+                for feature in data['features']:
+                    if 'properties' in feature:
+                        # Map vehicle types based on line information if not already specified
+                        if 'vehicleType' not in feature['properties']:
+                            # Try multiple potential property names for line
+                            line_id_raw = (feature['properties'].get('line') or 
+                                           feature['properties'].get('lineId') or 
+                                           feature['properties'].get('lineName') or
+                                           feature['properties'].get('routeId') or '')
+                            
+                            # Normalize the line ID - convert to string, strip whitespace, remove any prefixes
+                            if line_id_raw is None:
+                                line_id = ''
+                            elif not isinstance(line_id_raw, str):
+                                line_id = str(line_id_raw).strip()
+                            else:
+                                line_id = line_id_raw.strip()
+                            
+                            # Remove common prefixes if present
+                            for prefix in ['Line ', 'Route ', 'L', 'R']:
+                                if line_id.startswith(prefix):
+                                    line_id = line_id[len(prefix):]
+                            
+                            # Log the raw and normalized values
+                            logger.info(f"Raw line ID: '{line_id_raw}', Normalized: '{line_id}'")
+                            
+                            # Determine vehicle type based on specific line numbers
+                            vehicle_type = 'bus'  # Default
+                            
+                            # Metro lines: 1, 2, 5, 6
+                            metro_lines = ['1', '2', '5', '6']
+                            if line_id in metro_lines:
+                                vehicle_type = 'metro'
+                                logger.info(f"Line ID {line_id} matched METRO")
+                            
+                            # Tram lines: 4, 7, 8, 9, 10, 18, 19, 25, 35, 39, 51, 55, 62, 81, 82, 92, 93, 97
+                            tram_lines = ['4', '7', '8', '9', '10', '18', '19', '25', '35', '39', '51', 
+                                        '55', '62', '81', '82', '92', '93', '97']
+                            if line_id in tram_lines:
+                                vehicle_type = 'tram'
+                                logger.info(f"Line ID {line_id} matched TRAM")
+                            
+                            # Log the final determined type
+                            logger.info(f"Final vehicle type: {vehicle_type} for line_id: '{line_id}'")
+                            feature['properties']['vehicleType'] = vehicle_type
+                        else:
+                            # If vehicleType is already specified, log it
+                            logger.info(f"Vehicle type already specified: {feature['properties']['vehicleType']}")
+                
+                # Count by vehicle type
+                vehicle_counts = {"bus": 0, "tram": 0, "metro": 0, "unknown": 0}
+                for feature in data['features']:
+                    if 'properties' in feature and 'vehicleType' in feature['properties']:
+                        vtype = feature['properties']['vehicleType'].lower()
+                        if vtype in vehicle_counts:
+                            vehicle_counts[vtype] += 1
+                        else:
+                            vehicle_counts["unknown"] += 1
+                
+                logger.info(f"Vehicle types detected: {vehicle_counts}")
+            
             vehicle_count = len(data.get('features', []))
             logger.info(f"Received data for {vehicle_count} vehicles")
             return data

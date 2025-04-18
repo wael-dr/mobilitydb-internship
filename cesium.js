@@ -9,7 +9,6 @@ function initCesiumUtils(viewer) {
   console.log("Cesium utilities initialized");
   return {
     getTileInfo,
-    optimizeScene,
     createBuildingEntity
   };
 }
@@ -27,34 +26,6 @@ function getTileInfo() {
     heading: Cesium.Math.toDegrees(camera.heading),
     pitch: Cesium.Math.toDegrees(camera.pitch)
   };
-}
-
-// Optimize Cesium scene for performance
-function optimizeScene() {
-  if (!cesiumViewer) return;
-  
-  // ENSURE GLOBE IS VISIBLE - this is critical
-  cesiumViewer.scene.globe.show = true;
-  cesiumViewer.scene.globe.baseColor = Cesium.Color.BLUE;
-  
-  // Enable these features for better globe appearance
-  cesiumViewer.scene.globe.enableLighting = true;
-  cesiumViewer.scene.skyAtmosphere.show = true;
-  cesiumViewer.scene.moon.show = true;
-  cesiumViewer.scene.sun.show = true;
-  
-  // Make sure we're in 3D mode to see the globe
-  cesiumViewer.scene.mode = Cesium.SceneMode.SCENE3D;
-  
-  // Performance settings that won't affect globe visibility
-  cesiumViewer.scene.fog.enabled = false;
-  cesiumViewer.scene.fog.density = 0.0001;
-  cesiumViewer.scene.postProcessStages.fxaa.enabled = false;
-  
-  // Don't set maximumScreenSpaceError too high as it can make globe disappear
-  cesiumViewer.scene.globe.maximumScreenSpaceError = 2;
-  
-  console.log("Scene optimized with globe enabled");
 }
 
 // Helper to create a building entity with proper styling
@@ -76,6 +47,5 @@ function createBuildingEntity(coordinates, height, color) {
 window.CesiumUtils = {
   initCesiumUtils,
   getTileInfo,
-  optimizeScene,
   createBuildingEntity
 };

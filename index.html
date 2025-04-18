@@ -51,14 +51,6 @@
       <label><input type="checkbox" id="showVehicles" checked /> Show Vehicles</label>
     </div>
     <div class="control-group">
-      <label>Vehicle Types:</label>
-      <div>
-        <label class="vehicle-type-toggle"><input type="checkbox" data-type="bus" checked /> Buses</label>
-        <label class="vehicle-type-toggle"><input type="checkbox" data-type="tram" checked /> Trams</label>
-        <label class="vehicle-type-toggle"><input type="checkbox" data-type="metro" checked /> Metro</label>
-      </div>
-    </div>
-    <div class="control-group">
       <label for="updateIntervalSelect">Update Interval:</label>
       <select id="updateIntervalSelect">
         <option value="5000">5 seconds</option>
@@ -66,9 +58,6 @@
         <option value="30000">30 seconds</option>
         <option value="60000">1 minute</option>
       </select>
-    </div>
-    <div class="control-group">
-      <label><input type="checkbox" id="showRoutes" /> Show Routes</label>
     </div>
     <div>
       <button id="refreshNowButton">Refresh Now</button>
@@ -171,7 +160,7 @@
       }
     });
     
-    // Simplified performance configuration with mobility parameters
+    // Simplified configuration with mobility parameters
     const CONFIG = {
       maxTiles: 24,                  // Allow all tiles (4x6 grid)
       batchSize: 50,                 // Larger batch size
@@ -180,43 +169,9 @@
       emergencyMemoryThreshold: 95,  // Only act in extreme cases
       // Add mobility view parameters
       viewDistanceThreshold: 5000,   // Camera height threshold for detail adjustment
-      minBatchSize: 10,              // Minimum batch size
-      maxBatchSize: 100,             // Maximum batch size
-      dynamicBatchSize: true,        // Enable dynamic batch size adjustment
       // Add mobility simulation settings
       mobilitySimulation: true,       // Use simulated data by default
       mobilityAutoSwitch: true        // Auto switch to simulation if API fails
-    };
-    
-    // Performance measurement - FIX: Rename to avoid conflict with window.performance
-    const perfMonitor = {
-      lastFrameTime: 0,
-      frameCount: 0,
-      fps: 0,
-      lowPerformanceCount: 0,
-      measurePerformance: function() {
-        const now = window.performance.now();
-        if (this.lastFrameTime) {
-          const delta = now - this.lastFrameTime;
-          const currentFps = 1000 / delta;
-          this.fps = this.fps * 0.9 + currentFps * 0.1; // Smooth FPS
-          
-          if (this.fps < 15) this.lowPerformanceCount++;
-          else this.lowPerformanceCount = Math.max(0, this.lowPerformanceCount - 1);
-          
-          // Adapt batch size based on performance
-          if (CONFIG.dynamicBatchSize) {
-            if (this.lowPerformanceCount > 5) {
-              CONFIG.batchSize = Math.max(CONFIG.minBatchSize, Math.floor(CONFIG.batchSize * 0.8));
-              this.lowPerformanceCount = 0;
-            } else if (this.fps > 30 && this.frameCount % 60 === 0) {
-              CONFIG.batchSize = Math.min(CONFIG.maxBatchSize, Math.floor(CONFIG.batchSize * 1.1));
-            }
-          }
-        }
-        this.lastFrameTime = now;
-        this.frameCount++;
-      }
     };
     
     // Define Brussels area for the single tile (maintain the same bounds)
@@ -232,43 +187,6 @@
     // Calculate tile dimensions (single tile covers the entire area)
     const TILE_WIDTH = (BRUSSELS_GRID.east - BRUSSELS_GRID.west);
     const TILE_HEIGHT = (BRUSSELS_GRID.north - BRUSSELS_GRID.south);
-    
-    // Camera state tracking
-    const cameraState = {
-      isMoving: false,
-      moveStartTime: 0,
-      lastPosition: null,
-      frustum: null,
-      updateMovingState: function(camera) {
-        const position = camera.position.clone();
-        if (!this.lastPosition) {
-          this.lastPosition = position;
-          return false;
-        }
-        
-        // Check if camera has moved significantly
-        const distance = Cesium.Cartesian3.distance(position, this.lastPosition);
-        const isMoving = distance > 1.0;
-        
-        if (isMoving && !this.isMoving) {
-          this.moveStartTime = Date.now();
-          this.isMoving = true;
-        } else if (!isMoving && this.isMoving && (Date.now() - this.moveStartTime > 250)) {
-          this.isMoving = false;
-        }
-        
-        this.lastPosition = position;
-        return this.isMoving;
-      },
-      
-      updateFrustum: function(camera) {
-        this.frustum = camera.frustum.computeCullingVolume(
-          camera.position,
-          camera.direction,
-          camera.up
-        );
-      }
-    };
     
     // Keep track of loaded tiles
     const loadedTiles = {};
@@ -288,36 +206,6 @@
       }
       
       return "full"; // Single tile covering the entire area
-    }
-    
-    // Check if a tile is visible in the current view frustum
-    function isTileInFrustum(tileId) {
-      if (!cameraState.frustum) return true; // Default to visible if no frustum
-      
-      // Get tile bounds
-      const [col, row] = tileId.split('_').map(Number);
-      const west = BRUSSELS_GRID.west + col * TILE_WIDTH;
-      const east = west + TILE_WIDTH;
-      const south = BRUSSELS_GRID.south + row * TILE_HEIGHT;
-      const north = south + TILE_HEIGHT;
-      
-      // Create bounding box corners in cartesian coordinates
-      const corners = [
-        Cesium.Cartesian3.fromDegrees(west, south, 0),
-        Cesium.Cartesian3.fromDegrees(east, south, 0),
-        Cesium.Cartesian3.fromDegrees(east, north, 0),
-        Cesium.Cartesian3.fromDegrees(west, north, 0),
-        Cesium.Cartesian3.fromDegrees(west, south, 500), // Add height
-        Cesium.Cartesian3.fromDegrees(east, south, 500),
-        Cesium.Cartesian3.fromDegrees(east, north, 500),
-        Cesium.Cartesian3.fromDegrees(west, north, 500)
-      ];
-      
-      // Create a bounding sphere that contains all corners
-      const boundingSphere = Cesium.BoundingSphere.fromPoints(corners);
-      
-      // Check if the bounding sphere intersects the frustum
-      return cameraState.frustum.computeVisibility(boundingSphere) !== Cesium.Intersect.OUTSIDE;
     }
     
     // Apply extrusion to buildings in a tile with simpler processing
@@ -374,15 +262,6 @@
             const cameraPosition = viewer.camera.positionCartographic;
             const cameraHeight = cameraPosition.height;
             
-            // Use lower detail for tiles when camera is high
-            if (cameraHeight > CONFIG.viewDistanceThreshold) {
-              // Simplify data for distant view
-              const entities = dataSource.entities.values;
-              for (let i = 0; i < entities.length; i += 2) { // Skip every other building when far away
-                entities[i].show = false;
-              }
-            }
-            
             viewer.dataSources.add(dataSource);
             loadedTiles[tileId] = {
               dataSource: dataSource,
@@ -417,74 +296,6 @@
         .catch(error => {
           log(`Error loading full tile: ${error.message}`);
         });
-    }
-    
-    // Memory monitoring with emergency measures
-    function checkMemoryUsage() {
-      if (window.performance && window.performance.memory) {
-        const memoryInfo = window.performance.memory;
-        const memoryUsedMB = Math.round(memoryInfo.usedJSHeapSize / (1024 * 1024));
-        const memoryLimitMB = Math.round(memoryInfo.jsHeapSizeLimit / (1024 * 1024));
-        const percentUsed = Math.round((memoryUsedMB / memoryLimitMB) * 100);
-        
-        document.getElementById('memoryInfo').textContent = 
-          `Memory: ${memoryUsedMB}MB / ${memoryLimitMB}MB (${percentUsed}%)`;
-        
-        // Show warning when memory usage is high
-        if (percentUsed > 80 && !memoryWarningShown) {
-          log("WARNING: High memory usage detected. Some features may be limited.");
-          memoryWarningShown = true;
-        }
-        
-        // Emergency measures when memory usage is extremely high
-        if (percentUsed > 90) {
-          log("CRITICAL: Memory usage critical. Performing emergency cleanup.");
-          document.getElementById('emergencyButton').style.display = 'block';
-          emergencyMemoryCleanup();
-        }
-        
-        return { used: memoryUsedMB, limit: memoryLimitMB, percent: percentUsed };
-      }
-      
-      return null;
-    }
-    
-    // Emergency memory cleanup
-    function emergencyMemoryCleanup() {
-      log("EMERGENCY: Performing memory cleanup");
-      
-      // Cancel all processing
-      for (const tileId in loadedTiles) {
-        if (loadedTiles[tileId].cancelProcessing) {
-          loadedTiles[tileId].cancelProcessing();
-        }
-      }
-      
-      // Unload all but the current tile
-      const currentTileId = getCurrentTileId();
-      for (const tileId in loadedTiles) {
-        if (tileId !== currentTileId) {
-          try {
-            viewer.dataSources.remove(loadedTiles[tileId].dataSource);
-          } catch (e) {
-            console.error("Error removing dataSource", e);
-          }
-          delete loadedTiles[tileId];
-          loadedTileCount--;
-        }
-      }
-      
-      // Clear loading queue
-      loadingQueue.length = 0;
-      isLoading = false;
-      
-      // Force garbage collection hint
-      if (window.gc) window.gc();
-      
-      log("Emergency cleanup completed");
-      setTimeout(() => {
-        document.getElementById('emergencyButton').style.display = 'none';
-      }, 3000);
     }
     
     // Get current tile ID based on camera position
@@ -537,17 +348,8 @@
         if (window.CesiumUtils && typeof window.CesiumUtils.initCesiumUtils === 'function') {
           const cesiumUtils = window.CesiumUtils.initCesiumUtils(viewer);
           log("Cesium utilities initialized");
-          
-          // Use the optimizeScene function from cesium.js
-          cesiumUtils.optimizeScene();
         } else {
           log("WARNING: Cesium utilities not available");
-          
-          // Fallback to inline optimization
-          viewer.scene.fog.enabled = false;
-          viewer.scene.fog.density = 0.0001;
-          viewer.scene.postProcessStages.fxaa.enabled = false;
-          viewer.scene.globe.maximumScreenSpaceError = 4;
         }
         
         // Add a specific error handler for Cesium
@@ -565,12 +367,6 @@
             }
           }
         });
-        
-        // Adjust scene for performance
-        viewer.scene.fog.enabled = false;
-        viewer.scene.fog.density = 0.0001;
-        viewer.scene.postProcessStages.fxaa.enabled = false;
-        viewer.scene.globe.maximumScreenSpaceError = 4;
         
         // Ensure globe is visible with explicit settings
         viewer.scene.globe.show = true;
@@ -637,44 +433,11 @@
           destination: Cesium.Cartesian3.fromDegrees(4.37, 50.86, 8000)
         });
         
-        // Setup emergency button
-        document.getElementById('emergencyButton').addEventListener('click', function() {
-          emergencyMemoryCleanup();
-          // Also clean up mobility data if available
-          if (typeof emergencyMemoryCleanupForMobility === 'function') {
-            emergencyMemoryCleanupForMobility();
-          }
-        });
-        
-        // Remove quality slider event handler
-        // document.getElementById('qualitySlider').addEventListener('change', function(e) {
-        //   CONFIG.qualityLevel = parseInt(e.target.value);
-        //   log(`Quality level changed to ${CONFIG.qualityLevel}`);
-        //   
-        //   // Apply quality changes
-        //   viewer.scene.globe.maximumScreenSpaceError = 6 - CONFIG.qualityLevel;
-        // });
-        
         // Remove dynamic loading feature
         document.getElementById('enableDynamicLoading').parentNode.style.display = 'none';
         
-        // Add performance monitoring for display only
-        viewer.scene.preRender.addEventListener(function() {
-          perfMonitor.measurePerformance();
-        });
-        
         // Load all tiles immediately
         loadAllTiles(viewer);
-        
-        // Check memory usage periodically with mobility integration
-        setInterval(function() {
-          const memoryInfo = checkMemoryUsage();
-          
-          // Also check mobility memory if function exists
-          if (typeof checkMobilityMemory === 'function') {
-            checkMobilityMemory();
-          }
-        }, 5000);
         
         // Initialize mobility system after buildings are loaded
         setTimeout(function() {

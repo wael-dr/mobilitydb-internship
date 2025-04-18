@@ -45,6 +45,11 @@ const MOBILITY_CONFIG = {
   // Python server settings
   pythonServerUrl: 'http://localhost:8001/api/vehicles', // Changed from 8000 to 8001
   usePythonServer: true,  // Use Python server by default
+  visibleTypes: {         // Visibility flags by vehicle type - Now all default to true
+    bus: true,
+    tram: true,
+    metro: true
+  },
 };
 
 // State management
@@ -57,7 +62,7 @@ let mobData = {
   selectedVehicle: null,  // Currently selected vehicle
   liveMode: true,         // Live or historical view
   timeOffset: 0,          // Time offset for historical view
-  visibleTypes: {         // Visibility flags by vehicle type
+  visibleTypes: {         // Visibility flags by vehicle type - All vehicle types are always visible
     bus: true,
     tram: true,
     metro: true
@@ -486,14 +491,8 @@ function fetchVehicleData() {
     return;
   }
   
-  // Use Python server if enabled
-  if (MOBILITY_CONFIG.usePythonServer) {
-    fetchVehicleDataFromPythonServer();
-    return;
-  }
-  
-  // Otherwise use direct API
-  fetchVehicleDataFromAPI();
+  // Always use Python server since we removed the toggle option
+  fetchVehicleDataFromPythonServer();
 }
 
 // Rename the existing API fetch function to avoid conflict
@@ -647,6 +646,11 @@ function fetchVehicleDataFromPythonServer() {
 function convertApiResponseToGeoJson(apiData) {
   // Check if the data is already in GeoJSON format with features array
   if (apiData.features && Array.isArray(apiData.features)) {
+    // Log raw data for debugging
+    if (MOBILITY_CONFIG.debugMode && apiData.features.length > 0) {
+      const firstFeature = apiData.features[0];
+      log(`First feature from API: ${JSON.stringify(firstFeature.properties).substring(0, 200)}`);
+    }
     return apiData;
   }
   
@@ -655,14 +659,69 @@ function convertApiResponseToGeoJson(apiData) {
     // Extract properties based on API documentation
     const vehicleId = item.properties?.uuid || item.uuid || item.properties?.id || item.id || 
                       `vehicle_${Math.random().toString(36).substring(2, 9)}`;
-    const lineId = item.properties?.lineId || item.lineId || 'unknown';
+    
+    // Try to get line ID from multiple possible property names
+    const lineIdRaw = item.properties?.line || item.properties?.lineId || item.lineId || 
+                     item.properties?.lineName || item.properties?.routeId || 'unknown';
+    
     const direction = item.properties?.direction || item.direction || 0;
     const timestamp = item.properties?.timestamp || item.timestamp || Date.now();
     
-    // Determine vehicle type based on line information
-    let vehicleType = 'bus';  // Default
-    if (lineId.startsWith('M')) vehicleType = 'metro';
-    else if (lineId.match(/^\d+$/) && parseInt(lineId) < 100) vehicleType = 'tram';
+    // First check if vehicle type is explicitly provided in the API response
+    let vehicleType = item.properties?.vehicleType || item.vehicleType || item.properties?.type || item.type;
+    
+    // If no explicit vehicle type, infer from specific line numbers
+    if (!vehicleType) {
+      // Normalize the line ID - convert to string, trim, and remove prefixes
+      let lineIdStr = String(lineIdRaw).trim();
+      
+      // Remove common prefixes if present
+      ['Line ', 'Route ', 'L', 'R'].forEach(prefix => {
+        if (lineIdStr.startsWith(prefix)) {
+          lineIdStr = lineIdStr.substring(prefix.length);
+        }
+      });
+      
+      // Log detailed debugging information
+      if (MOBILITY_CONFIG.debugMode) {
+        log(`Raw lineId: '${lineIdRaw}', Normalized to: '${lineIdStr}'`);
+      }
+      
+      // Define the exact line numbers for metro and tram
+      const metroLines = ['1', '2', '5', '6'];
+      const tramLines = ['4', '7', '8', '9', '10', '18', '19', '25', '35', '39', '51', 
+                        '55', '62', '81', '82', '92', '93', '97'];
+      
+      // Check if line is a metro line - use exact string matching
+      if (metroLines.indexOf(lineIdStr) >= 0) {
+        vehicleType = 'metro';
+        if (MOBILITY_CONFIG.debugMode) {
+          log(`Line ID '${lineIdStr}' matched METRO`);
+        }
+      }
+      // Check if line is a tram line
+      else if (tramLines.indexOf(lineIdStr) >= 0) {
+        vehicleType = 'tram';
+        if (MOBILITY_CONFIG.debugMode) {
+          log(`Line ID '${lineIdStr}' matched TRAM`);
+        }
+      }
+      // Otherwise it's a bus
+      else {
+        vehicleType = 'bus';
+        if (MOBILITY_CONFIG.debugMode) {
+          log(`Line ID '${lineIdStr}' did not match any known metro/tram line → BUS`);
+        }
+      }
+    }
+    
+    // Convert to lowercase for consistency
+    vehicleType = String(vehicleType).toLowerCase();
+    
+    // Make sure it's one of our supported types
+    if (!['bus', 'tram', 'metro'].includes(vehicleType)) {
+      vehicleType = 'bus'; // default fallback
+    }
     
     // Extract coordinates - handle various possible structures
     let coordinates;
@@ -698,7 +757,8 @@ function convertApiResponseToGeoJson(apiData) {
       properties: {
         vehicleId: vehicleId,
         vehicleType: vehicleType,
-        line: lineId,
+        line: lineIdRaw, // Use raw line ID for display
+        lineNormalized: String(lineIdRaw).trim(), // Store normalized version
         bearing: direction,
         speed: item.properties?.speed || item.speed || 0,
         time: new Date(timestamp * 1000).toISOString(), // Convert timestamp to ISO string
@@ -807,26 +867,21 @@ function setupMobilityControls(viewer) {
   // Toggle vehicle visibility
   document.getElementById('showVehicles').addEventListener('change', function(e) {
     mobData.dataSource.show = e.target.checked;
+    
+    // Make sure all vehicle types are visible when toggled on
+    if (e.target.checked) {
+      mobData.visibleTypes.bus = true;
+      mobData.visibleTypes.tram = true;
+      mobData.visibleTypes.metro = true;
+    }
   });
   
-  // Toggle vehicle types
-  document.querySelectorAll('.vehicle-type-toggle input').forEach(checkbox => {
-    checkbox.addEventListener('change', function(e) {
-      const type = this.getAttribute('data-type');
-      mobData.visibleTypes[type] = this.checked;
-      updateVehicleVisibility();
-    });
-  });
+  // Remove the individual vehicle type toggle event listeners since we removed them from the HTML
   
   // Update interval selection
   document.getElementById('updateIntervalSelect').addEventListener('change', function(e) {
     MOBILITY_CONFIG.updateInterval = parseInt(e.target.value);
     restartVehicleDataUpdates();
-  });
-  
-  // Route toggling
-  document.getElementById('showRoutes').addEventListener('change', function(e) {
-    toggleRouteVisibility(e.target.checked);
   });
   
   // Manual refresh
@@ -867,26 +922,6 @@ function setupMobilityControls(viewer) {
     restartVehicleDataUpdates();
   });
   
-  // Add API key input field to the vehicle controls
-  const apiKeyContainer = document.createElement('div');
-  apiKeyContainer.className = 'control-group';
-  apiKeyContainer.innerHTML = `
-    <label>API Key:</label>
-    <div style="margin-top: 5px;">
-      <input type="text" id="apiKeyInput" placeholder="Enter API Key" style="width: 150px;">
-      <button id="setApiKey">Set</button>
-    </div>
-  `;
-  
-  // Add the container to the controls
-  controlsDiv.appendChild(apiKeyContainer);
-  
-  // Set up API key button handler
-  document.getElementById('setApiKey').addEventListener('click', function() {
-    const apiKey = document.getElementById('apiKeyInput').value;
-    setMobilityApiKey(apiKey);
-  });
-  
   // Add debugging info section for API troubleshooting
   const debugContainer = document.createElement('div');
   debugContainer.className = 'control-group';
@@ -904,9 +939,6 @@ function setupMobilityControls(viewer) {
     document.getElementById('apiDebugInfo').style.display = e.target.checked ? 'block' : 'none';
     updateDebugInfo();
   });
-  
-  // Add Python server controls after other controls are created
-  setupPythonServerControls(document.getElementById('vehicleControls'));
 }
 
 // Setup temporal (time-based) controls
@@ -1126,9 +1158,11 @@ function processVehicleData(data) {
   // Update the visualization
   updateVehicleEntities();
   
-  // Update log with vehicle count
+  // Update log with vehicle count and type stats
   if (typeof log === "function") {
     log(`Updated ${processedCount} vehicles`);
+    // Add vehicle type statistics
+    logVehicleTypeStats();
   }
 }
 
@@ -1434,48 +1468,13 @@ function stopHistoricalPlayback() {
 function updateVehicleVisibility() {
   if (!mobData.dataSource) return;
   
-  mobData.dataSource.entities.values.forEach(entity => {
-    if (entity.entityType === 'vehicle') {
-      const vehicle = mobData.vehicles[entity.vehicleId];
-      if (vehicle) {
-        const vehicleType = vehicle.properties.vehicleType;
-        entity.show = mobData.visibleTypes[vehicleType] || false;
-      }
-    }
-  });
-}
-
-// Toggle route visibility
-function toggleRouteVisibility(visible) {
-  if (!mobData.dataSource) return;
+  // Now we only check if dataSource.show is true, all types are always shown
+  const showAll = mobData.dataSource.show;
   
-  // For each vehicle, show/hide its route
   mobData.dataSource.entities.values.forEach(entity => {
     if (entity.entityType === 'vehicle') {
-      const vehicleId = entity.id;
-      
-      // Create or update route path
-      if (visible && mobData.vehicleHistory[vehicleId]) {
-        if (!entity.path) {
-          const history = mobData.vehicleHistory[vehicleId];
-          const positions = history.map(h => Cesium.Cartesian3.fromDegrees(
-            h.position[0], 
-            h.position[1], 
-            MOBILITY_CONFIG.vehicleHeightOffset - 5
-          ));
-          
-          entity.path = new Cesium.PathGraphics({
-            material: MOBILITY_CONFIG.vehicleColors[mobData.vehicles[vehicleId]?.properties?.vehicleType] || 
-                      Cesium.Color.YELLOW,
-            width: 2,
-            leadTime: 0,
-            trailTime: MOBILITY_CONFIG.historyLength / 1000
-          });
-        }
-        entity.path.show = true;
-      } else if (entity.path) {
-        entity.path.show = false;
-      }
+      // All vehicles are visible if the main toggle is checked
+      entity.show = showAll;
     }
   });
 }
@@ -1557,95 +1556,27 @@ function displayVehicleInfo(vehicle) {
   infoDiv.style.display = 'block';
 }
 
-// Memory monitoring integration with existing system
-function checkMobilityMemory() {
-  if (typeof mobData === 'undefined' || !mobData || !mobData.vehicleHistory) {
-    return; // Skip if not initialized yet
-  }
+// Add this diagnostic function to help us understand vehicle types
+function logVehicleTypeStats() {
+  if (!mobData.vehicles || Object.keys(mobData.vehicles).length === 0) return;
   
-  // Count total history points in memory
-  let historyPoints = 0;
-  Object.values(mobData.vehicleHistory).forEach(history => {
-    historyPoints += history.length;
+  const types = {bus: 0, tram: 0, metro: 0, unknown: 0};
+  const linesByType = {bus: [], tram: [], metro: [], unknown: []};
+  
+  Object.values(mobData.vehicles).forEach(vehicle => {
+    const type = vehicle.properties.vehicleType || 'unknown';
+    const line = vehicle.properties.line || 'unknown';
+    
+    types[type] = (types[type] || 0) + 1;
+    
+    // Track line IDs by vehicle type (limited to 10 per type)
+    if (linesByType[type].length < 10 && !linesByType[type].includes(line)) {
+      linesByType[type].push(line);
+    }
   });
   
-  // Log memory information
-  if (typeof log === "function") {
-    log(`Mobility memory: ${Object.keys(mobData.vehicles).length} vehicles, ${historyPoints} history points`);
-  }
-  
-  // Clean up excess history if needed
-  if (historyPoints > 10000) {
-    // Reduce history length
-    const newHistoryLength = Math.max(60000, MOBILITY_CONFIG.historyLength * 0.8);
-    if (newHistoryLength < MOBILITY_CONFIG.historyLength) {
-      MOBILITY_CONFIG.historyLength = newHistoryLength;
-      
-      // Trim all histories
-      Object.entries(mobData.vehicleHistory).forEach(([vehicleId, history]) => {
-        while (history.length > 0 && 
-              Date.now() - history[0].time > MOBILITY_CONFIG.historyLength) {
-          history.shift();
-        }
-      });
-      
-      if (typeof log === "function") {
-        log(`Reduced vehicle history length to ${MOBILITY_CONFIG.historyLength / 1000}s`);
-      }
-    }
-  }
-}
-
-// Integration with the emergency memory cleanup from the main application
-function emergencyMemoryCleanupForMobility() {
-  if (typeof mobData === 'undefined' || !mobData) return;
-  
-  // Clear history data
-  mobData.vehicleHistory = {};
-  
-  // Keep only current vehicle data
-  if (mobData.dataSource) {
-    // Remove all paths
-    mobData.dataSource.entities.values.forEach(entity => {
-      if (entity.path) {
-        entity.path.show = false;
-      }
-    });
-  }
-  
-  log("Mobility: Emergency memory cleanup performed");
-}
-
-// Function to set the API key
-function setMobilityApiKey(apiKey) {
-  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
-    log("Invalid API key provided");
-    return false;
-  }
-  
-  // Store the API key
-  MOBILITY_CONFIG.apiToken = apiKey;
-  
-  // Update the authorization header
-  MOBILITY_CONFIG.apiHeaders['Authorization'] = `Bearer ${apiKey}`;
-  
-  log("API key updated. Reconnecting to API...");
-  
-  // Reset error count
-  mobData.apiErrorCount = 0;
-  
-  // Switch back to API mode if in simulation
-  if (MOBILITY_CONFIG.useSimulation) {
-    MOBILITY_CONFIG.useSimulation = false;
-    log("Switched to real API mode");
-  }
-  
-  // Update debug info if visible
-  updateDebugInfo();
-  
-  // Restart data updates to use the new key
-  restartVehicleDataUpdates();
-  return true;
+  log(`Vehicle type statistics: ${JSON.stringify(types)}`);
+  log(`Sample line IDs by type: ${JSON.stringify(linesByType)}`);
 }
 
 // Add this new function to update debug information
@@ -1654,79 +1585,4 @@ function updateDebugInfo() {
   
   document.getElementById('lastApiError').textContent = mobData.lastApiError || 'None';
   document.getElementById('lastRawResponse').textContent = mobData.lastRawResponse || 'None';
-}
-
-// Add a function to add Python server controls to the UI
-function setupPythonServerControls(controlsDiv) {
-  const serverControlContainer = document.createElement('div');
-  serverControlContainer.className = 'control-group';
-  serverControlContainer.innerHTML = `
-    <label>Data Source:</label>
-    <div style="margin-top: 5px;">
-      <label>
-        <input type="checkbox" id="usePythonServer" ${MOBILITY_CONFIG.usePythonServer ? 'checked' : ''}>
-        Use Python Server
-      </label>
-    </div>
-    <div style="margin-top: 5px;">
-      <input type="text" id="pythonServerUrl" value="${MOBILITY_CONFIG.pythonServerUrl}" style="width: 200px;">
-    </div>
-    <div style="margin-top: 5px;">
-      <div id="pythonServerStatus">Server status: unknown</div>
-    </div>
-  `;
-  
-  controlsDiv.appendChild(serverControlContainer);
-  
-  // Add event handler for Python server toggle
-  document.getElementById('usePythonServer').addEventListener('change', function(e) {
-    MOBILITY_CONFIG.usePythonServer = e.target.checked;
-    log(`Switched to ${MOBILITY_CONFIG.usePythonServer ? 'Python server' : 'direct API'} mode`);
-    restartVehicleDataUpdates();
-    
-    // Update status 
-    if (MOBILITY_CONFIG.usePythonServer) {
-      checkPythonServerStatus();
-    }
-  });
-  
-  // Add event handler for Python server URL change
-  document.getElementById('pythonServerUrl').addEventListener('change', function(e) {
-    MOBILITY_CONFIG.pythonServerUrl = e.target.value;
-    log(`Updated Python server URL to: ${MOBILITY_CONFIG.pythonServerUrl}`);
-    if (MOBILITY_CONFIG.usePythonServer) {
-      restartVehicleDataUpdates();
-      checkPythonServerStatus();
-    }
-  });
-  
-  // Check server status initially
-  checkPythonServerStatus();
-}
-
-// Add a function to check Python server status
-function checkPythonServerStatus() {
-  const statusUrl = MOBILITY_CONFIG.pythonServerUrl.replace('/api/vehicles', '/api/status');
-  const statusElement = document.getElementById('pythonServerStatus');
-  
-  statusElement.textContent = "Server status: checking...";
-  statusElement.style.color = "#ffcc00";
-  
-  fetch(statusUrl)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      const lastFetch = data.last_fetch ? new Date(data.last_fetch).toLocaleTimeString() : 'never';
-      statusElement.textContent = `Server status: running (last update: ${lastFetch})`;
-      statusElement.style.color = "#00ff00";
-    })
-    .catch(error => {
-      statusElement.textContent = `Server status: not running or unreachable`;
-      statusElement.style.color = "#ff0000";
-      log(`Python server status check failed: ${error.message}`);
-    });
 }
