@@ -675,13 +675,6 @@ function convertApiResponseToGeoJson(apiData) {
       // Normalize the line ID - convert to string, trim, and remove prefixes
       let lineIdStr = String(lineIdRaw).trim();
       
-      // Remove common prefixes if present
-      ['Line ', 'Route ', 'L', 'R'].forEach(prefix => {
-        if (lineIdStr.startsWith(prefix)) {
-          lineIdStr = lineIdStr.substring(prefix.length);
-        }
-      });
-      
       // Log detailed debugging information
       if (MOBILITY_CONFIG.debugMode) {
         log(`Raw lineId: '${lineIdRaw}', Normalized to: '${lineIdStr}'`);

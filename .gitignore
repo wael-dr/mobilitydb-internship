@@ -21,6 +21,9 @@ __pycache__/
 # PID files
 *.pid
 
+# BAT files
+*.bat
+
 # JSON cache files
 vehicle_positions.json
 last_raw_response.json
