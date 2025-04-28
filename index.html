@@ -53,10 +53,11 @@
     <div class="control-group">
       <label for="updateIntervalSelect">Update Interval:</label>
       <select id="updateIntervalSelect">
+        <option value="3000" selected>3 seconds</option>
         <option value="5000">5 seconds</option>
-        <option value="10000" selected>10 seconds</option>
+        <option value="10000">10 seconds</option>
         <option value="30000">30 seconds</option>
-        <option value="60000">1 minute</option>
+        
       </select>
     </div>
     <div>
@@ -75,7 +76,7 @@
   </div>
   
   <div id="dataStatus">Data: Not Connected</div>
-  
+
   <script src="mobility.js"></script>
   <script src="cesium.js"></script>
   <script>

@@ -18,27 +18,14 @@ else
   echo "! Failed to remove bxl_wgs84_with_height.gpkg"
 fi
 
-# Check if the original file exists
-if [ -f bxl.gpkg ]; then
-  echo "✓ Original bxl.gpkg file preserved"
-else
-  echo "! Original bxl.gpkg file not found"
-fi
-
-# Check if GEOJSON files exist
-if [ -f tile_full.geojson ]; then
-  echo "✓ Original tile_full.geojson file preserved"
-else
-  echo "! Original tile_full.geojson file not found"
-fi
-
 # Remove JSON cache files
-echo "Removing JSON cache files..."
-rm -f vehicle_positions.json last_raw_response.json
-if [ ! -f vehicle_positions.json ] && [ ! -f last_raw_response.json ]; then
-  echo "✓ JSON cache files removed"
+echo "Removing JSON files..."
+rm -f *.json
+LOG_COUNT=$(ls -1 *.json 2>/dev/null | wc -l)
+if [ "$LOG_COUNT" -eq 0 ]; then
+  echo "✓ All JSON files removed"
 else
-  echo "! Some JSON cache files could not be removed"
+  echo "! Some JSON files could not be removed"
 fi
 
 # Remove log files

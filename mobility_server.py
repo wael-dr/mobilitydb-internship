@@ -13,6 +13,7 @@ import time
 import threading
 import urllib.parse
 import logging
+import os
 from datetime import datetime
 
 # Configure logging
@@ -27,43 +28,54 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 # Configuration
-API_URL = "https://api.mobilitytwin.brussels/stib/vehicle-position"
+API_URL = "https://api.mobilitytwin.brussels/stib/trips"  # Changed from vehicle-position to trips
 PORT = 8001  # Changed from 8000 to 8001 to avoid conflict
-CACHE_FILE = "vehicle_positions.json"
+CACHE_FILE = "vehicle_trips.json"  # Changed from vehicle_positions.json to vehicle_trips.json
 CACHE_TIMEOUT = 10  # seconds
 last_fetch_time = 0
 cached_data = None
 cache_lock = threading.Lock()
 
 class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        """Handle GET requests"""
-        # Parse URL path
-        parsed_path = urllib.parse.urlparse(self.path)
-        query = urllib.parse.parse_qs(parsed_path.query)
-        
-        # Handle different routes
-        if parsed_path.path == '/api/vehicles':
-            # Return vehicle data
-            self.serve_vehicle_data(query.get('token', [None])[0])
-        
-        elif parsed_path.path == '/api/status':
-            # Return status information
-            self.serve_status()
-        
-        else:
-            # Serve the help page for any other path
-            self.serve_help_page()
+    def handle_one_request(self):
+        """Override to handle connection aborted errors gracefully"""
+        try:
+            return super().handle_one_request()
+        except ConnectionAbortedError:
+            logger.info("Connection aborted by client - this is normal browser behavior")
+        except Exception as e:
+            logger.error(f"Error handling request: {str(e)}")
     
-    def do_OPTIONS(self):
-        """Handle OPTIONS requests for CORS preflight"""
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Access-Control-Max-Age', '86400')  # 24 hours
-        self.end_headers()
-    
+    def serve_static_file(self, file_path):
+        """Serve static files from the static directory"""
+        # Sanitize file path to prevent directory traversal attacks
+        file_path = os.path.normpath(file_path).lstrip('/')
+        
+        try:
+            with open(file_path, 'rb') as f:
+                self.send_response(200)
+                
+                # Set content type based on file extension
+                _, ext = os.path.splitext(file_path)
+                if ext == '.css':
+                    content_type = 'text/css'
+                elif ext == '.js':
+                    content_type = 'application/javascript'
+                elif ext == '.ico':
+                    content_type = 'image/x-icon'
+                else:
+                    content_type = 'application/octet-stream'
+                
+                self.send_header('Content-Type', content_type)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(f.read())
+        except FileNotFoundError:
+            self.send_error(404, "File not found")
+        except Exception as e:
+            logger.error(f"Error serving static file {file_path}: {str(e)}")
+            self.send_error(500, "Internal Server Error")
+
     def serve_vehicle_data(self, token=None):
         """Fetch and serve vehicle data"""
         global last_fetch_time, cached_data
@@ -127,18 +139,50 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(status).encode('utf-8'))
-    
+        
+    def serve_routes(self, token=None):
+        """Fetch and serve route data from the API"""
+        # This reuses the vehicle data fetching mechanism since both use the same API
+        # but makes it clear this endpoint is specifically for route data
+        self.serve_vehicle_data(token)
+        
+    def do_GET(self):
+        """Handle GET requests"""
+        # Parse URL path
+        parsed_path = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed_path.query)
+
+        # Handle different routes
+        if parsed_path.path == '/api/vehicles':
+            # Return vehicle data
+            self.serve_vehicle_data(query.get('token', [None])[0])
+        elif parsed_path.path == '/api/routes':
+            # Return route data (reuse vehicle data as they come from the same source)
+            self.serve_routes(query.get('token', [None])[0])
+        elif parsed_path.path == '/api/status':
+            # Return status information
+            self.serve_status()
+        elif parsed_path.path.startswith('/static/'):
+            # Serve static files
+            self.serve_static_file(parsed_path.path[7:])  # Remove '/static/' prefix
+        elif parsed_path.path == '/favicon.ico':
+            # Serve favicon
+            self.serve_static_file('favicon.ico')
+        else:
+            # Serve the help page for any other path
+            self.serve_help_page()
+
     def serve_help_page(self):
         """Serve a simple HTML help page"""
-        help_html = """
+        help_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Brussels Mobility API Server</title>
             <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                h1 { color: #333; }
-                pre { background: #f4f4f4; padding: 10px; border-radius: 5px; }
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                pre {{ background: #f4f4f4; padding: 10px; border-radius: 5px; }}
             </style>
         </head>
         <body>
@@ -147,20 +191,20 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
             
             <h2>Available Endpoints:</h2>
             <ul>
-                <li><strong>/api/vehicles</strong> - Get real-time vehicle positions</li>
+                <li><strong>/api/vehicles</strong> - Get real-time vehicle trips</li>
                 <li><strong>/api/status</strong> - Get server status information</li>
             </ul>
-            
+
             <h2>Example Usage:</h2>
-            <pre>fetch('http://localhost:8001/api/vehicles')
+            <pre>fetch('http://localhost:{PORT}/api/vehicles')
     .then(response => response.json())
     .then(data => console.log(data));</pre>
-            
-            <p>Server running on port {port}</p>
+
+            <p>Server running on port {PORT}</p>
         </body>
         </html>
-        """.format(port=PORT)
-        
+        """
+
         self.send_response(200)
         self.send_header('Content-Type', 'text/html')
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -168,27 +212,50 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(help_html.encode('utf-8'))
     
     def fetch_data(self, token=None):
-        """Fetch vehicle position data from the API"""
+        """Fetch vehicle trips data from the API"""
         api_token = token or "c9ab58bd69b8213fa5cc1d01e73ffb34793da24d88e2ec0d6e773e8bbc0f891576ca308b7e2c4bf581babf30dea68f450d121a1f0ba59a23ad5c88f5f4305443"
         
         headers = {
             "Authorization": f"Bearer {api_token}",
             "Accept": "application/json"
         }
-        
-        logger.info(f"Fetching data from {API_URL}")
-        
+
+        # Calculate start and end timestamps for the API request
+        # Widened the time range to 10 minutes before and after current time
+        current_time = int(time.time())  # Current time in seconds since epoch
+        start_timestamp = current_time - 90  # 90 seconds ago
+        end_timestamp = current_time + 90  # 90 seconds in the future
+
+        # Add query parameters to the URL
+        params = {
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp
+        }
+
+        logger.info(f"Fetching data from {API_URL} with time range {start_timestamp} to {end_timestamp}")
+
         try:
-            response = requests.get(API_URL, headers=headers)
+            response = requests.get(API_URL, headers=headers, params=params)
             response.raise_for_status()  # Raise exception for HTTP errors
             
             # Save the raw response for debugging
             with open("last_raw_response.json", "w") as f:
                 f.write(response.text)
-            
-            data = response.json()
-            
-            # Process and enhance the data to ensure vehicle types are preserved
+
+            # Check if the response is JSON before trying to parse it
+            if 'application/json' in response.headers.get('Content-Type', ''):
+                try:
+                    data = response.json()
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode JSON response: {str(e)}")
+                    logger.error(f"Raw response text: {response.text[:500]}")  # Log first 500 chars
+                    return None
+            else:
+                logger.error(f"Received non-JSON response (Content-Type: {response.headers.get('Content-Type')})")
+                logger.error(f"Raw response text: {response.text[:500]}")  # Log first 500 chars
+                return None
+
+            # Process and enhance the data (existing logic)
             if 'features' in data and isinstance(data['features'], list):
                 logger.info(f"Processing {len(data['features'])} features for vehicle type detection")
                 
@@ -263,6 +330,9 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Request failed: {str(e)}")
+            # Log the response text if available, even on request exceptions
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Raw response text on error: {e.response.text[:500]}")
             return None
 
 def run_server():
