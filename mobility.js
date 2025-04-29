@@ -631,7 +631,17 @@ function processVehicleData(data) {
 
       // Update entity availability based on time range of samples
       if (firstTime && lastTime) {
-          const interval = new Cesium.TimeInterval({ start: firstTime, stop: lastTime });
+          // Create interval with a buffer of 20 seconds into the future
+          // to keep entities visible between data fetches
+          const bufferSeconds = 20;
+          const extendedLastTime = Cesium.JulianDate.clone(lastTime);
+          Cesium.JulianDate.addSeconds(lastTime, bufferSeconds, extendedLastTime);
+          
+          const interval = new Cesium.TimeInterval({ 
+              start: firstTime, 
+              stop: extendedLastTime 
+          });
+          
           // Check if interval already exists to avoid duplicates (simple check)
           let exists = false;
           for(let i=0; i < entity.availability.length; i++) {
@@ -644,6 +654,10 @@ function processVehicleData(data) {
              entity.availability.addInterval(interval);
           }
       }
+      
+      // Configure position extrapolation to maintain visibility beyond data points
+      sampledPosition.forwardExtrapolationType = Cesium.ExtrapolationType.HOLD;
+      sampledPosition.forwardExtrapolationDuration = 20; // 20 seconds into the future
       
       // Update label (only if needed, properties may not change often)
       if (!entity.label || entity.label.text !== line) {
