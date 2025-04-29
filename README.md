@@ -2,7 +2,7 @@
 
 Interactive 3D visualization of Brussels buildings with real-time public transport overlay.
 
-![Demo image](demo.png?raw=true "Title")
+![Demo GIF](demo.gif?raw=true "Demo GIF")
 
 ## Prerequisites
 
