@@ -14,19 +14,14 @@
     #loadingOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
                      background-color: rgba(0,0,0,0.7); display: flex; justify-content: center;
                      align-items: center; color: white; font-size: 24px; z-index: 1000; }
-    #performanceControls { position: absolute; top: 90px; left: 10px; background: rgba(0,0,0,0.7);
-                          color: white; padding: 10px; z-index: 1000; }
     .control-group { margin-bottom: 8px; }
     .control-group label { display: block; margin-bottom: 3px; }
-    #emergencyButton { position: absolute; bottom: 10px; left: 320px; background: rgba(255,0,0,0.7);
-                      color: white; padding: 10px; z-index: 2000; display: none; }
     
     /* Mobility styling */
     #vehicleControls { position: absolute; top: 140px; left: 10px; background: rgba(0,0,0,0.7);
                       color: white; padding: 10px; z-index: 1000; width: 250px; }
     #vehicleInfo { position: absolute; bottom: 10px; left: 320px; background: rgba(0,0,0,0.7);
                   color: white; padding: 10px; z-index: 1000; display: none; width: 300px; }
-    #timeControls { display: none; }
     .vehicle-type-toggle { margin: 5px; }
     #dataStatus { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,0.7);
                  color: white; padding: 5px 10px; z-index: 1000; font-size: 12px; }
@@ -35,14 +30,7 @@
 <body>
   <div id="cesiumContainer" class="fullSize"></div>
   <div id="loadingOverlay">Loading Brussels 3D Buildings...</div>
-  <div id="toolbar"></div>
   <div id="debugPanel"></div>
-  <div id="performanceControls">
-    <div class="control-group">
-      <label><input type="checkbox" id="enableDynamicLoading" checked /> Dynamic Loading</label>
-    </div>
-  </div>
-  <button id="emergencyButton">Emergency Memory Recovery</button>
   
   <!-- Vehicle controls -->
   <div id="vehicleControls">
@@ -69,10 +57,6 @@
     <h3>Vehicle Details</h3>
     <div id="vehicleDetails">Select a vehicle to see details</div>
     <button id="closeVehicleInfo">Close</button>
-  </div>
-  
-  <div id="timeControls" style="display: none;">
-    <!-- This content is now hidden -->
   </div>
   
   <div id="dataStatus">Data: Not Connected</div>
@@ -163,10 +147,7 @@
     
     // Simplified configuration with mobility parameters
     const CONFIG = {
-      maxTiles: 24,                  // Allow all tiles (4x6 grid)
-      batchSize: 50,                 // Larger batch size
-      qualityLevel: 2,               // Keep the same
-      processingDelay: 5,            // Smaller delay
+      qualityLevel: 2,               // Rendering quality level
       emergencyMemoryThreshold: 95,  // Only act in extreme cases
       // Add mobility view parameters
       viewDistanceThreshold: 5000,   // Camera height threshold for detail adjustment
@@ -175,29 +156,19 @@
       mobilityAutoSwitch: true        // Auto switch to simulation if API fails
     };
     
-    // Define Brussels area for the single tile (maintain the same bounds)
+    // Define Brussels area for the single tile
     const BRUSSELS_GRID = {
       west: 4.33,
       east: 4.41,
       south: 50.83,
       north: 50.89,
-      cols: 1,  // Updated to a single column
-      rows: 1   // Updated to a single row
+      cols: 1,  // Single column
+      rows: 1   // Single row
     };
-    
-    // Calculate tile dimensions (single tile covers the entire area)
-    const TILE_WIDTH = (BRUSSELS_GRID.east - BRUSSELS_GRID.west);
-    const TILE_HEIGHT = (BRUSSELS_GRID.north - BRUSSELS_GRID.south);
     
     // Keep track of loaded tiles
     const loadedTiles = {};
     let loadedTileCount = 0;
-    
-    // Load queue management
-    const loadingQueue = [];
-    let isLoading = false;
-    let memoryWarningShown = false;
-    let processingPaused = false;
     
     // Get tile ID based on position - always returns "full" for the single tile
     function getTileId(lon, lat) {
@@ -285,7 +256,7 @@
         });
     }
     
-    // Load all tiles at once - now just loads the single full tile
+    // Load the full tile
     function loadAllTiles(viewer) {
       log("Loading the full tile...");
       
@@ -297,14 +268,6 @@
         .catch(error => {
           log(`Error loading full tile: ${error.message}`);
         });
-    }
-    
-    // Get current tile ID based on camera position
-    function getCurrentTileId() {
-      const cameraPosition = viewer.camera.positionCartographic;
-      const lon = Cesium.Math.toDegrees(cameraPosition.longitude);
-      const lat = Cesium.Math.toDegrees(cameraPosition.latitude);
-      return getTileId(lon, lat);
     }
     
     // Initialize the application with token consideration
@@ -433,9 +396,6 @@
         viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(4.37, 50.86, 8000)
         });
-        
-        // Remove dynamic loading feature
-        document.getElementById('enableDynamicLoading').parentNode.style.display = 'none';
         
         // Load all tiles immediately
         loadAllTiles(viewer);

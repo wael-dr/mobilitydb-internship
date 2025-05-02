@@ -19,23 +19,6 @@ const MOBILITY_CONFIG = {
     metro: Cesium.Color.fromCssColorString('#2ecc71')
   },
   historyLength: 10 * 60 * 1000, // 10 minutes of history (used for time slider range)
-  // Simulation parameters - disabled by default
-  useSimulation: false,   // Use real API data instead of simulation
-  preventAutoSwitchToSimulation: true, // Prevent automatic switch to simulation mode
-  simulatedVehicles: 30,  // Number of vehicles to simulate (only used if useSimulation is true)
-  simulationSpeedFactor: 1.0, // Speed multiplier for simulation
-  simulationBounds: {     // Area where vehicles will be simulated
-    west: 4.34,
-    east: 4.40,
-    south: 50.84,
-    north: 50.88
-  },
-  // Storage for real routes (potentially to be removed if not needed for simulation)
-  realRoutes: {
-    routeData: {},         // Will store route data from API
-    lastFetch: null,       // Last time routes were retrieved
-    fetchInterval: 60000   // Fetch routes every minute
-  },
   // API Authentication - add your token here if needed
   apiToken: "c9ab58bd69b8213fa5cc1d01e73ffb34793da24d88e2ec0d6e773e8bbc0f891576ca308b7e2c4bf581babf30dea68f450d121a1f0ba59a23ad5c88f5f4305443",
   apiHeaders: {            // Headers to send with API requests
@@ -63,16 +46,12 @@ let mobData = {
   selectedVehicle: null,  // Currently selected vehicle
   liveMode: true,         // Live or historical view
   timeOffset: 0,          // Time offset for historical view (relative to current time)
-  visibleTypes: {         // Visibility flags by vehicle type - All vehicle types are always visible
+  visibleTypes: {         // Visibility flags by vehicle type
     bus: true,
     tram: true,
     metro: true
   },
-  simulationStartTime: Date.now(), // Reference point for simulation timing
-  simulatedVehicles: [],          // Storage for simulated vehicle states
-  lastSimulationUpdate: null,     // Last time simulation was updated
-  routeCache: {},                  // Cache for routes derived from real data (for simulation)
-  apiErrorCount: 0,              // Initialize error counter correctly
+  apiErrorCount: 0,              // Initialize error counter
   lastApiError: null,            // Store last API error for debugging
   lastRawResponse: null,         // Store last raw API response for debugging
   temporalSyncDone: false        // Indicator to track if temporal synchronization has been done
@@ -107,244 +86,8 @@ function initMobility(viewer) {
   log("Mobility system initialized - Using real API data");
 }
 
-// --- Route simulation and cache functions (potentially to be removed if simulation is not needed) ---
-// fetchRouteData, processRouteData, updateRouteCache, getRoutePatterns, 
-// initializeSimulation, createSimulatedVehicles, createSimulatedVehicle, 
-// updateSimulatedVehicles, generateSimulatedData
-// NOTE: These functions seem to be the source of the 'keeping previous cache' log message.
-// They are kept for now but the `updateRouteDataFromVehicles` call is removed later.
-
-// Fetch real route data from API
-function fetchRouteData() {
-  log("Fetching real route data from Python server...");
-  const dataStatus = document.getElementById('dataStatus');
-  if (dataStatus) {
-    dataStatus.textContent = "Data: Fetching Routes...";
-    dataStatus.style.color = "#ffcc00";
-  }
-  
-  // Use Python server instead of direct API calls to avoid CORS issues
-  return fetch(MOBILITY_CONFIG.pythonServerUrl.replace('vehicles', 'routes'))
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      if (dataStatus) {
-        dataStatus.textContent = "Data: Routes Loaded";
-        dataStatus.style.color = "#00ff00";
-      }
-      processRouteData(data);
-      return data;
-    })
-    .catch(error => {
-      log(`Error fetching route data: ${error.message}`);
-      if (dataStatus) {
-        dataStatus.textContent = "Data: Route Error";
-        dataStatus.style.color = "#ff0000";
-      }
-      MOBILITY_CONFIG.realRoutes.routeData = {};
-      mobData.routeCache.patterns = [];
-    });
-}
-
-// Process route data from API
-function processRouteData(data) {
-  MOBILITY_CONFIG.realRoutes.lastFetch = Date.now();
-  const routes = {};
-  try {
-    if (data.features && Array.isArray(data.features)) {
-      data.features.forEach(feature => {
-        // Simplified: just check if temporalGeometry exists for potential route points
-        if (feature.temporalGeometry && feature.temporalGeometry.coordinates && feature.properties) {
-          const coords = feature.temporalGeometry.coordinates;
-          const vehicleType = feature.properties.vehicleType || 'bus';
-          const line = feature.properties.line || 'unknown';
-          const key = `${vehicleType}_${line}`;
-          if (!routes[key]) {
-            routes[key] = { type: vehicleType, line: line, points: [], vehicles: [] };
-          }
-          if (coords && coords.length > 0) {
-             // Add only the last point to simplify the static route cache
-            routes[key].points.push(coords[coords.length - 1]); 
-            if (feature.properties.uuid) { // Use uuid as vehicleId
-              routes[key].vehicles.push(feature.properties.uuid);
-            }
-          }
-        }
-      });
-      Object.keys(routes).forEach(key => {
-        if (routes[key].points.length < 2) { delete routes[key]; }
-      });
-      MOBILITY_CONFIG.realRoutes.routeData = routes;
-      log(`Processed ${Object.keys(routes).length} routes from API data for cache`);
-      updateRouteCache();
-    } else {
-      log("Invalid route data format from API for cache");
-    }
-  } catch (error) {
-    log(`Error processing route data for cache: ${error.message}`);
-  }
-}
-
-// Update internal route cache for simulation
-function updateRouteCache() {
-  const routes = MOBILITY_CONFIG.realRoutes.routeData;
-  const routePatterns = [];
-  Object.values(routes).forEach(route => {
-    let points = route.points;
-    if (points.length > 10) {
-      const step = Math.floor(points.length / 10);
-      points = points.filter((_, index) => index % step === 0).slice(0, 10);
-    }
-    if (points.length >= 2) {
-      routePatterns.push({ type: route.type, line: route.line, points: points });
-    }
-  });
-  if (routePatterns.length > 0) {
-    mobData.routeCache.patterns = routePatterns;
-    log(`Updated route cache with ${routePatterns.length} patterns`);
-  } else {
-    log("Not enough valid routes found for simulation cache, keeping previous cache"); 
-  }
-}
-
-// Get route patterns for simulation
-function getRoutePatterns() {
-  if (mobData.routeCache && mobData.routeCache.patterns && mobData.routeCache.patterns.length > 0) {
-    return mobData.routeCache.patterns;
-  }
-  log("No valid route patterns available for simulation");
-  return [];
-}
-
-// Initialize vehicle simulation
-function initializeSimulation() {
-  mobData.simulationStartTime = Date.now();
-  mobData.simulatedVehicles = [];
-  if (!MOBILITY_CONFIG.useSimulation && !MOBILITY_CONFIG.realRoutes.lastFetch) {
-    fetchRouteData()
-      .then(() => {
-        const routePatterns = getRoutePatterns();
-        if (routePatterns.length > 0) { createSimulatedVehicles(); }
-        else { log("No route patterns available after fetching. No sim vehicles created."); }
-      })
-      .catch(() => { log("Failed to fetch routes. No sim vehicles created."); });
-  } else {
-    const routePatterns = getRoutePatterns();
-    if (routePatterns.length > 0) { createSimulatedVehicles(); }
-    else { log("No route patterns available for simulation. No sim vehicles created."); }
-  }
-}
-
-// Create simulated vehicles
-function createSimulatedVehicles() {
-  mobData.simulatedVehicles = [];
-  const routePatterns = getRoutePatterns();
-  if (routePatterns.length === 0) {
-    log("Cannot create sim vehicles: No route patterns available"); return;
-  }
-  for (let i = 0; i < MOBILITY_CONFIG.simulatedVehicles; i++) {
-    createSimulatedVehicle();
-  }
-  log(`Initialized ${mobData.simulatedVehicles.length} simulated vehicles`);
-}
-
-// Create a single simulated vehicle
-function createSimulatedVehicle() {
-  const routePatterns = getRoutePatterns();
-  if (routePatterns.length === 0) { return null; }
-  const routeIndex = Math.floor(Math.random() * routePatterns.length);
-  const route = routePatterns[routeIndex];
-  const vehicleId = `sim_vehicle_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-  const direction = Math.random() > 0.5 ? 1 : -1;
-  const progressRatio = Math.random();
-  const baseSpeed = 5 + Math.random() * 30;
-  const speedFactor = 0.00001;
-  mobData.simulatedVehicles.push({ id: vehicleId, routeIndex: routeIndex, type: route.type, line: route.line, direction: direction, progress: progressRatio, speed: baseSpeed * speedFactor, lastUpdate: Date.now() });
-}
-
-// Update simulated vehicle positions
-function updateSimulatedVehicles() {
-  const currentTime = Date.now();
-  const timeFactor = MOBILITY_CONFIG.simulationSpeedFactor;
-  const routePatterns = getRoutePatterns();
-  if (routePatterns.length === 0) { return; }
-  mobData.simulatedVehicles.forEach(vehicle => {
-    const timeDelta = vehicle.lastUpdate ? (currentTime - vehicle.lastUpdate) * timeFactor : 0;
-    const route = routePatterns[vehicle.routeIndex % routePatterns.length];
-    if (!route) return;
-    vehicle.progress += (vehicle.speed * timeDelta * vehicle.direction);
-    if (vehicle.progress >= 1) {
-      if (Math.random() > 0.7) { vehicle.direction = -1; vehicle.progress = 1; } else { vehicle.progress = 0; }
-    } else if (vehicle.progress <= 0) {
-      if (Math.random() > 0.7) { vehicle.direction = 1; vehicle.progress = 0; } else { vehicle.progress = 1; }
-    }
-    vehicle.progress = Math.max(0, Math.min(1, vehicle.progress));
-    vehicle.lastUpdate = currentTime;
-  });
-  mobData.lastSimulationUpdate = currentTime;
-}
-
-// Generate GeoJSON-like data from simulated vehicles
-function generateSimulatedData() {
-  updateSimulatedVehicles();
-  if (mobData.simulatedVehicles.length === 0) { return { features: [] }; }
-  const routePatterns = getRoutePatterns();
-  if (routePatterns.length === 0) { return { features: [] }; }
-  const features = mobData.simulatedVehicles.map(vehicle => {
-    const route = routePatterns[vehicle.routeIndex % routePatterns.length];
-    if (!route) return null;
-    const points = route.points;
-    if (points.length < 2) return null;
-    const totalSegments = points.length - 1;
-    const segmentIndex = Math.min(Math.floor(vehicle.progress * totalSegments), totalSegments - 1);
-    const segmentProgress = (vehicle.progress * totalSegments) - segmentIndex;
-    const start = points[segmentIndex];
-    const end = points[segmentIndex + 1];
-    const lon = start[0] + (end[0] - start[0]) * segmentProgress;
-    const lat = start[1] + (end[1] - start[1]) * segmentProgress;
-    const dx = end[0] - start[0];
-    const dy = end[1] - start[1];
-    let bearing = (Math.atan2(dx, dy) * 180 / Math.PI);
-    if (vehicle.direction < 0) { bearing = (bearing + 180) % 360; }
-    bearing = (bearing + 360) % 360;
-    const displaySpeed = vehicle.speed / 0.00001;
-    return { type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: { vehicleId: vehicle.id, vehicleType: vehicle.type, line: vehicle.line, bearing: bearing, speed: displaySpeed, time: new Date().toISOString() } };
-  }).filter(Boolean);
-  return { features };
-}
-
-// --- End of route simulation and cache functions ---
-
-
-// Fetch vehicle data from API or Python server
+// Fetch vehicle data from Python server
 function fetchVehicleData() {
-  // Use simulation if enabled (should be disabled)
-  if (MOBILITY_CONFIG.useSimulation) {
-    try {
-      const simulatedData = generateSimulatedData();
-      const dataStatus = document.getElementById('dataStatus');
-      if (dataStatus) {
-        dataStatus.textContent = "Data: Simulated";
-        dataStatus.style.color = "#00ff00";
-      }
-      processVehicleData(simulatedData);
-    } catch (error) {
-      console.error("Error generating simulated data:", error);
-      const dataStatus = document.getElementById('dataStatus');
-      if (dataStatus) {
-        dataStatus.textContent = "Data: Simulation Error";
-        dataStatus.style.color = "#ff0000";
-      }
-      if (typeof log === "function") { log(`Simulation error: ${error.message}`); }
-    }
-    return;
-  }
-  
-  // Always use Python server
   fetchVehicleDataFromPythonServer();
 }
 
@@ -417,25 +160,6 @@ function fetchVehicleDataFromPythonServer() {
       }
       
       log(`Error fetching vehicle data from Python server: ${error.message}`);
-      
-      // If too many consecutive errors and automatic switch prevention is not enabled
-      if (mobData.apiErrorCount > MOBILITY_CONFIG.maxRetries && !MOBILITY_CONFIG.preventAutoSwitchToSimulation) {
-        log(`Too many API errors (${mobData.apiErrorCount}), switching to simulation mode`);
-        MOBILITY_CONFIG.useSimulation = true;
-        resetSimulation();
-        
-        const dataStatus = document.getElementById('dataStatus');
-        if (dataStatus) {
-          dataStatus.textContent = "Data: Switched to Simulation";
-          dataStatus.style.color = "#ffcc00";
-        }
-        
-        // Update UI if it exists
-        const useRealApiCheckbox = document.getElementById('useRealApi');
-        if (useRealApiCheckbox) {
-          useRealApiCheckbox.checked = false;
-        }
-      }
       
       // Update debugging information
       updateDebugInfo();
@@ -761,7 +485,7 @@ function addVehicleModel(entity, vehicleType) {
   const color = MOBILITY_CONFIG.vehicleColors[vehicleType] || Cesium.Color.YELLOW;
   const scale = MOBILITY_CONFIG.defaultVehicleScale;
 
-  // Use simple boxes for now, replace with GLTF models if available
+  // Use boxes with appropriate dimensions for each vehicle type
   switch(vehicleType) {
     case 'bus':
       entity.box = new Cesium.BoxGraphics({
@@ -842,27 +566,9 @@ function setupMobilityControls(viewer) {
     });
   }
   
-  // API switch control (kept for potential future use)
+  // Debug info section
   const controlsDiv = document.getElementById('vehicleControls');
   if (controlsDiv) {
-    const apiSwitchContainer = document.createElement('div');
-    apiSwitchContainer.className = 'control-group';
-    apiSwitchContainer.innerHTML = `
-      <label><input type="checkbox" id="useRealApi" ${!MOBILITY_CONFIG.useSimulation ? 'checked' : ''}> Use Real API</label>
-    `;
-    controlsDiv.insertBefore(apiSwitchContainer, controlsDiv.firstChild);
-    
-    const useRealApiCheckbox = document.getElementById('useRealApi');
-    if (useRealApiCheckbox) {
-      useRealApiCheckbox.addEventListener('change', function(e) {
-        MOBILITY_CONFIG.useSimulation = !e.target.checked;
-        log(`Switched to ${MOBILITY_CONFIG.useSimulation ? 'simulation' : 'real API'} mode`);
-        resetSimulation(); // Reset simulation state if toggled
-        restartVehicleDataUpdates();
-      });
-    }
-    
-    // Debug info section
     const debugContainer = document.createElement('div');
     debugContainer.className = 'control-group';
     debugContainer.innerHTML = `
@@ -918,16 +624,6 @@ function restartVehicleDataUpdates() {
   stopVehicleDataUpdates();
   // Add a short delay before restarting to ensure cleanup
   setTimeout(startVehicleDataUpdates, 500); 
-}
-
-// Reset simulation (kept for potential future use)
-function resetSimulation() {
-  const wasActive = mobData.workerActive;
-  if (wasActive) { stopVehicleDataUpdates(); }
-  if (mobData.dataSource) { mobData.dataSource.entities.removeAll(); }
-  initializeSimulation();
-  if (wasActive) { startVehicleDataUpdates(); }
-  log("Simulation reset with " + MOBILITY_CONFIG.simulatedVehicles + " vehicles");
 }
 
 // Select a vehicle

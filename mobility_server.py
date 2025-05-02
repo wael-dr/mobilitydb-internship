@@ -140,12 +140,6 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(status).encode('utf-8'))
         
-    def serve_routes(self, token=None):
-        """Fetch and serve route data from the API"""
-        # This reuses the vehicle data fetching mechanism since both use the same API
-        # but makes it clear this endpoint is specifically for route data
-        self.serve_vehicle_data(token)
-        
     def do_GET(self):
         """Handle GET requests"""
         # Parse URL path
@@ -157,8 +151,8 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
             # Return vehicle data
             self.serve_vehicle_data(query.get('token', [None])[0])
         elif parsed_path.path == '/api/routes':
-            # Return route data (reuse vehicle data as they come from the same source)
-            self.serve_routes(query.get('token', [None])[0])
+            # Return vehicle data (same data source - direct call)
+            self.serve_vehicle_data(query.get('token', [None])[0])
         elif parsed_path.path == '/api/status':
             # Return status information
             self.serve_status()
@@ -192,6 +186,7 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
             <h2>Available Endpoints:</h2>
             <ul>
                 <li><strong>/api/vehicles</strong> - Get real-time vehicle trips</li>
+                <li><strong>/api/routes</strong> - Alias for /api/vehicles (same data)</li>
                 <li><strong>/api/status</strong> - Get server status information</li>
             </ul>
 
@@ -221,7 +216,6 @@ class MobilityAPIHandler(http.server.BaseHTTPRequestHandler):
         }
 
         # Calculate start and end timestamps for the API request
-        # Widened the time range to 10 minutes before and after current time
         current_time = int(time.time())  # Current time in seconds since epoch
         start_timestamp = current_time - 90  # 90 seconds ago
         end_timestamp = current_time + 90  # 90 seconds in the future
