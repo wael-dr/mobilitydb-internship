@@ -2,41 +2,20 @@
 
 Interactive 3D visualization of Brussels buildings with real-time public transport overlay.
 
-![Demo GIF](demo.gif?raw=true "Demo GIF")
-
-## Prerequisites
-
-- Geopackage file named `bxl.gpkg`
-- Python 3 with: `requests`, `fiona`, `shapely`, `numpy`, `tqdm`
+![Demo Image](demo.png?raw=true "Demo Image")
 
 ## Quick Start
 
-1. Prepare data:
+   ### Start the server
    ```bash
-   # Convert the Geopackage from EPSG:31370 (Belgian Lambert 72)
-   # to EPSG:4326 (WGS 84), the standard system
-   ./first.sh
-   
-   # Set up an isolated Python environment for dependencies
-   python3 -m venv venv
-   
-   # Activate the virtual environment
-   source venv/bin/activate
-   
-   # Extract height (Z) values from 3D geometries
-   # and add them as a new field
-   python3 second.py
-
-   # Convert to GeoJSON
-   ./generate_tiles.sh
+   python -m http.server
+   ```
+   or
+   ```bash
+   http-server --cors -p 8000 
    ```
 
-2. Start server and view:
-   ```bash
-   http-server --cors -p 8000
-   ```
-
-3. When finished:
+   ### When finished
    ```bash
    ./cleanup.sh  # Optional: removes temp files
    ```
