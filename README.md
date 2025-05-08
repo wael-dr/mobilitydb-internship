@@ -33,15 +33,10 @@ Interactive 3D visualization of Brussels buildings with real-time public transpo
 
 2. Start server and view:
    ```bash
-   # Start fetching data from the Brussels Mobility API 
-   ./start_server.sh
-   
    http-server --cors -p 8000
    ```
 
 3. When finished:
    ```bash
-   ./stop_server.sh
-   
    ./cleanup.sh  # Optional: removes temp files
    ```

@@ -7,36 +7,51 @@
 const MOBILITY_CONFIG = {
   apiUrl: 'https://api.mobilitytwin.brussels/stib/trips',  // Trips endpoint for moving vehicles
   updateInterval: 3000, // 3 seconds
-  retryDelay: 3000,      // 3 seconds
   maxRetries: 3,
-  vehicleHeightOffset: 1, // meters above ground
-  interpolationPoints: 60, // points to generate between positions
-  maxVehicles: 200,        // maximum number of vehicles to display for performance
+  vehicleHeightOffset: 2, // meters above ground
+  maxVehicles: 5000,        // maximum number of vehicles to display for performance
   defaultVehicleScale: 1.5,
   vehicleColors: {
     bus: Cesium.Color.fromCssColorString('#3498db'),
     tram: Cesium.Color.fromCssColorString('#e74c3c'),
     metro: Cesium.Color.fromCssColorString('#2ecc71')
   },
-  historyLength: 10 * 60 * 1000, // 10 minutes of history (used for time slider range)
-  // API Authentication - add your token here if needed
-  apiToken: "c9ab58bd69b8213fa5cc1d01e73ffb34793da24d88e2ec0d6e773e8bbc0f891576ca308b7e2c4bf581babf30dea68f450d121a1f0ba59a23ad5c88f5f4305443",
+  // API Authentication
   apiHeaders: {            // Headers to send with API requests
-    'Accept': 'application/json'
+    'Accept': 'application/json',
+    'Authorization': 'Bearer c9ab58bd69b8213fa5cc1d01e73ffb34793da24d88e2ec0d6e773e8bbc0f891576ca308b7e2c4bf581babf30dea68f450d121a1f0ba59a23ad5c88f5f4305443'
   },
   debugMode: true,          // Enable detailed logging
-  // Python server parameters
-  pythonServerUrl: 'http://localhost:8001/api/vehicles', // Changed from 8000 to 8001
-  usePythonServer: true,  // Use Python server by default
-  visibleTypes: {         // Visibility flags by vehicle type - All default to true
-    bus: true,
-    tram: true,
-    metro: true
-  },
   // Animation parameters
   animationSpeed: 1,      // Default animation speed
-  enableAnimation: true   // Enable animation by default
+  enableAnimation: true,   // Enable animation by default
+  // Terrain sampling configuration
+  enableTerrainSampling: true,  // Enable terrain height sampling
+  terrainSamplingCache: true,   // Cache terrain heights for performance
+  terrainRaycastHeight: 1000,   // Height in meters to start raycasting from
+  terrainSampleSpacing: 0.001   // Grid spacing for terrain sampling cache (degrees)
 };
+
+// Helper function to determine vehicle type based on line ID
+function determineVehicleType(lineId) {
+  // Default to bus
+  let vehicleType = 'bus'; 
+  
+  // Metro lines: 1, 2, 5, 6
+  const metroLines = ['1', '2', '5', '6'];
+  if (metroLines.includes(lineId)) {
+    return 'metro';
+  }
+  
+  // Tram lines: 4, 7, 8, 9, 10, 18, 19, 25, 35, 39, 51, 55, 62, 81, 82, 92, 93, 97
+  const tramLines = ['4', '7', '8', '9', '10', '18', '19', '25', '35', '39', '51',
+                     '55', '62', '81', '82', '92', '93', '97'];
+  if (tramLines.includes(lineId)) {
+    return 'tram';
+  }
+  
+  return vehicleType;
+}
 
 // State management
 let mobData = {
@@ -44,17 +59,11 @@ let mobData = {
   lastUpdate: null,       // Timestamp of last update
   workerActive: false,    // Flag for active data retrieval
   selectedVehicle: null,  // Currently selected vehicle
-  liveMode: true,         // Live or historical view
-  timeOffset: 0,          // Time offset for historical view (relative to current time)
-  visibleTypes: {         // Visibility flags by vehicle type
-    bus: true,
-    tram: true,
-    metro: true
-  },
   apiErrorCount: 0,              // Initialize error counter
   lastApiError: null,            // Store last API error for debugging
   lastRawResponse: null,         // Store last raw API response for debugging
-  temporalSyncDone: false        // Indicator to track if temporal synchronization has been done
+  temporalSyncDone: false,       // Indicator to track if temporal synchronization has been done
+  terrainHeightCache: {}         // Cache for sampled terrain heights
 };
 
 // Initialize the mobility data system
@@ -80,32 +89,42 @@ function initMobility(viewer) {
   // Set up UI event handlers
   setupMobilityControls(viewer);
   
+  // Clear terrain height cache
+  mobData.terrainHeightCache = {};
+  
   // Start data retrieval immediately
   startVehicleDataUpdates();
   
   log("Mobility system initialized - Using real API data");
 }
 
-// Fetch vehicle data from Python server
+// Fetch vehicle data from API
 function fetchVehicleData() {
-  fetchVehicleDataFromPythonServer();
-}
-
-// Fetch vehicle data from Python server
-function fetchVehicleDataFromPythonServer() {
-  const apiUrl = MOBILITY_CONFIG.pythonServerUrl;
+  const apiUrl = MOBILITY_CONFIG.apiUrl;
   
   const dataStatus = document.getElementById('dataStatus');
   if (dataStatus) {
-    dataStatus.textContent = "Data: Fetching from Python...";
+    dataStatus.textContent = "Data: Fetching from API...";
     dataStatus.style.color = "#ffcc00";
   }
   
   if (MOBILITY_CONFIG.debugMode) {
-    log(`Fetching data from Python server: ${apiUrl}`);
+    log(`Fetching data from API: ${apiUrl}`);
   }
   
-  fetch(apiUrl)
+  // Calculate start and end timestamps for the API request
+  const currentTime = Math.floor(Date.now() / 1000);  // Current time in seconds
+  const startTimestamp = currentTime - 90;  // 90 seconds ago
+  const endTimestamp = currentTime + 90;    // 90 seconds in the future
+  
+  // Build the URL with query parameters
+  const fullUrl = `${apiUrl}?start_timestamp=${startTimestamp}&end_timestamp=${endTimestamp}`;
+  
+  // Make the API request with authorization
+  fetch(fullUrl, {
+    method: 'GET',
+    headers: MOBILITY_CONFIG.apiHeaders
+  })
     .then(response => {
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -115,7 +134,7 @@ function fetchVehicleDataFromPythonServer() {
     .then(data => {
       const dataStatus = document.getElementById('dataStatus');
       if (dataStatus) {
-        dataStatus.textContent = "Data: Connected (Python)";
+        dataStatus.textContent = "Data: Connected";
         dataStatus.style.color = "#00ff00";
       }
       
@@ -132,12 +151,32 @@ function fetchVehicleDataFromPythonServer() {
         return; // Exit the function without processing empty data
       }
       
+      // Process vehicle types for each feature
+      data.features.forEach(feature => {
+        if (feature.properties) {
+          // Map vehicle types based on line information if not already specified
+          if (!feature.properties.vehicleType) {
+            // Try multiple potential property names for line
+            const lineIdRaw = (feature.properties.line || 
+                         feature.properties.lineId || 
+                         feature.properties.lineName || 
+                         feature.properties.routeId || '');
+            
+            // Normalize the line ID
+            const lineId = String(lineIdRaw).trim();
+            
+            // Determine vehicle type based on line ID using helper function
+            feature.properties.vehicleType = determineVehicleType(lineId);
+          }
+        }
+      });
+      
       // Store just a sample of the response for debugging
       const sampleFeature = JSON.stringify(data.features[0]);
       mobData.lastRawResponse = `${data.features.length} features. Sample: ${sampleFeature.substring(0, 300)}...`;
       
       if (MOBILITY_CONFIG.debugMode) {
-        log(`Received data from Python: ${data.features.length} features`);
+        log(`Received data from API: ${data.features.length} features`);
       }
       
       // Process the data to update Cesium entities
@@ -159,11 +198,87 @@ function fetchVehicleDataFromPythonServer() {
         dataStatus.style.color = "#ff0000";
       }
       
-      log(`Error fetching vehicle data from Python server: ${error.message}`);
+      log(`Error fetching vehicle data from API: ${error.message}`);
       
       // Update debugging information
       updateDebugInfo();
+      
+      // If we failed multiple times, suggest a refresh
+      if (mobData.apiErrorCount > MOBILITY_CONFIG.maxRetries) {
+        log(`Exceeded max retries (${MOBILITY_CONFIG.maxRetries}). Consider refreshing the page.`);
+      }
     });
+}
+
+// Sample terrain height from 3D Tiles using raycasting
+function sampleTerrainHeight(longitude, latitude) {
+  // Check if height is already in cache
+  const cacheKey = getCacheKey(longitude, latitude);
+  if (MOBILITY_CONFIG.terrainSamplingCache && mobData.terrainHeightCache[cacheKey] !== undefined) {
+    return mobData.terrainHeightCache[cacheKey];
+  }
+  
+  const viewer = window.viewer;
+  if (!viewer || !viewer.scene) {
+    log("Viewer not available for terrain sampling");
+    return 0; // Default height if viewer not available
+  }
+  
+  // If terrain sampling is disabled, return 0
+  if (!MOBILITY_CONFIG.enableTerrainSampling) {
+    return 0;
+  }
+  
+  try {
+    // Create a ray starting above the target point
+    const rayHeight = MOBILITY_CONFIG.terrainRaycastHeight;
+    const rayStart = Cesium.Cartesian3.fromDegrees(longitude, latitude, rayHeight);
+    const rayEnd = Cesium.Cartesian3.fromDegrees(longitude, latitude, 0);
+    const direction = Cesium.Cartesian3.subtract(rayEnd, rayStart, new Cesium.Cartesian3());
+    Cesium.Cartesian3.normalize(direction, direction);
+    
+    const ray = new Cesium.Ray(rayStart, direction);
+    const intersection = viewer.scene.pickFromRay(ray, []);
+    
+    let height = 0;
+    
+    if (Cesium.defined(intersection) && Cesium.defined(intersection.position)) {
+      // Convert the intersection position to cartographic (longitude, latitude, height)
+      const cartographic = Cesium.Cartographic.fromCartesian(intersection.position);
+      height = cartographic.height;
+      
+      if (MOBILITY_CONFIG.debugMode && Math.random() < 0.01) { // Log only a sample of heights to avoid flooding
+        log(`Sampled terrain height at (${longitude.toFixed(5)}, ${latitude.toFixed(5)}): ${height.toFixed(2)}m`);
+      }
+    } else {
+      // If no intersection is found, try the ellipsoid
+      const cartographic = Cesium.Cartographic.fromDegrees(longitude, latitude);
+      height = 0; // Ellipsoid height is 0
+      
+      if (MOBILITY_CONFIG.debugMode && Math.random() < 0.01) {
+        log(`No terrain intersection at (${longitude.toFixed(5)}, ${latitude.toFixed(5)}), using ellipsoid height`);
+      }
+    }
+    
+    // Cache the result
+    if (MOBILITY_CONFIG.terrainSamplingCache) {
+      mobData.terrainHeightCache[cacheKey] = height;
+    }
+    
+    return height;
+  } catch (error) {
+    log(`Error sampling terrain height: ${error.message}`);
+    return 0; // Return default height on error
+  }
+}
+
+// Generate a cache key based on rounded coordinates to reduce duplicate sampling
+function getCacheKey(longitude, latitude) {
+  // Round to a grid based on terrainSampleSpacing
+  const spacing = MOBILITY_CONFIG.terrainSampleSpacing;
+  const roundedLon = Math.round(longitude / spacing) * spacing;
+  const roundedLat = Math.round(latitude / spacing) * spacing;
+  return `${roundedLon.toFixed(6)}_${roundedLat.toFixed(6)}`;
 }
 
 // Process vehicle data
@@ -206,21 +321,7 @@ function processVehicleData(data) {
       
       if (!feature.properties.vehicleType && feature.properties.lineId) {
           const lineId = String(feature.properties.lineId).trim();
-          
-          // Metro lines: 1, 2, 5, 6
-          const metroLines = ['1', '2', '5', '6'];
-          if (metroLines.includes(lineId)) {
-              vehicleType = 'metro';
-              log(`Line ID ${lineId} matched METRO`);
-          }
-          
-          // Tram lines: 4, 7, 8, 9, 10, 18, 19, 25, 35, 39, 51, 55, 62, 81, 82, 92, 93, 97
-          const tramLines = ['4', '7', '8', '9', '10', '18', '19', '25', '35', '39', '51',
-                            '55', '62', '81', '82', '92', '93', '97'];
-          if (tramLines.includes(lineId)) {
-              vehicleType = 'tram';
-              log(`Line ID ${lineId} matched TRAM`);
-          }
+          vehicleType = determineVehicleType(lineId);
       }
       
       const line = feature.properties.line || feature.properties.lineId || 'unknown';
@@ -295,8 +396,16 @@ function processVehicleData(data) {
             
             try {
                 const julianDate = Cesium.JulianDate.fromIso8601(datetime);
-                // Use height offset from config
-                const cartesianPosition = Cesium.Cartesian3.fromDegrees(coord[0], coord[1], MOBILITY_CONFIG.vehicleHeightOffset);
+                
+                // Sample terrain height at this coordinate
+                const terrainHeight = sampleTerrainHeight(coord[0], coord[1]);
+                
+                // Use terrain height plus vehicle offset
+                const cartesianPosition = Cesium.Cartesian3.fromDegrees(
+                    coord[0], 
+                    coord[1], 
+                    terrainHeight + MOBILITY_CONFIG.vehicleHeightOffset
+                );
                 
                 // Add a sample to the position property
                 sampledPosition.addSample(julianDate, cartesianPosition);
@@ -333,7 +442,16 @@ function processVehicleData(data) {
               log(`Error parsing time ${timeStr} for simple point, using current time.`);
               julianDate = Cesium.JulianDate.now();
           }
-          const cartesianPosition = Cesium.Cartesian3.fromDegrees(coord[0], coord[1], MOBILITY_CONFIG.vehicleHeightOffset);
+          
+          // Sample terrain height at this coordinate
+          const terrainHeight = sampleTerrainHeight(coord[0], coord[1]);
+          
+          // Use terrain height plus vehicle offset
+          const cartesianPosition = Cesium.Cartesian3.fromDegrees(
+              coord[0], 
+              coord[1], 
+              terrainHeight + MOBILITY_CONFIG.vehicleHeightOffset
+          );
           
           // Add a single point for the given time
           sampledPosition.addSample(julianDate, cartesianPosition);

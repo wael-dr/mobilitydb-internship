@@ -109,8 +109,8 @@
       Cesium.Ion.defaultAccessToken = CESIUM_TOKEN_OPTIONS[index];
       log(`Trying token option ${index+1}...`);
       
-      // Test the token with a lightweight request
-      Cesium.IonResource.fromAssetId(1)
+      // Test the token with the Google 3D Tiles asset directly
+      Cesium.IonResource.fromAssetId(2275207)
         .then(() => {
           log("Token authentication successful!");
           initializeViewer(CESIUM_TOKEN_OPTIONS[index]);
@@ -145,140 +145,15 @@
       }
     });
     
-    // Simplified configuration with mobility parameters
-    const CONFIG = {
-      qualityLevel: 2,               // Rendering quality level
-      emergencyMemoryThreshold: 95,  // Only act in extreme cases
-      // Add mobility view parameters
-      viewDistanceThreshold: 5000,   // Camera height threshold for detail adjustment
-      // Add mobility simulation settings
-      mobilitySimulation: true,       // Use simulated data by default
-      mobilityAutoSwitch: true        // Auto switch to simulation if API fails
-    };
-    
-    // Define Brussels area for the single tile
-    const BRUSSELS_GRID = {
-      west: 4.33,
-      east: 4.41,
-      south: 50.83,
-      north: 50.89,
-      cols: 1,  // Single column
-      rows: 1   // Single row
-    };
-    
-    // Keep track of loaded tiles
-    const loadedTiles = {};
-    let loadedTileCount = 0;
-    
-    // Get tile ID based on position - always returns "full" for the single tile
-    function getTileId(lon, lat) {
-      if (lon < BRUSSELS_GRID.west || lon > BRUSSELS_GRID.east || 
-          lat < BRUSSELS_GRID.south || lat > BRUSSELS_GRID.north) {
-        return null; // Outside our grid
-      }
-      
-      return "full"; // Single tile covering the entire area
-    }
-    
-    // Apply extrusion to buildings in a tile with simpler processing
-    function processBuildingsInTile(dataSource) {
-      const entities = dataSource.entities.values;
-      log(`Processing ${entities.length} buildings...`);
-      
-      // Process all buildings without complex batching
-      for (let i = 0; i < entities.length; i++) {
-        try {
-          const entity = entities[i];
-          if (entity && entity.polygon) {
-            // Extract height from properties, or use default
-            let height = 10;
-            try {
-              if (entity.properties && entity.properties.height) {
-                const h = entity.properties.height.getValue();
-                if (!isNaN(h) && h > 0) height = h;
-              }
-            } catch (e) {}
-            
-            if (height > 500) height = 50;
-            
-            // Apply extrusion
-            entity.polygon.extrudedHeight = height;
-            entity.polygon.material = Cesium.Color.fromHsl(0.6, 0.6, 0.4).withAlpha(0.8);
-          }
-        } catch (error) {
-          console.error("Error processing entity", error);
-        }
-      }
-      
-      log(`Completed processing ${entities.length} buildings.`);
-      return function() {}; // Empty cancel function
-    }
-    
-    // Load a single tile with proper promise handling
-    function loadTile(viewer, tileId) {
-      if (loadedTiles[tileId]) {
-        return Promise.resolve(loadedTiles[tileId]); // Already loaded
-      }
-      
-      const filename = `tile_${tileId}.geojson`;
-      log(`Loading tile: ${filename}`);
-      
-      const dataSource = new Cesium.GeoJsonDataSource(tileId);
-      return dataSource.load(filename, {
-          clampToGround: true, // Keep buildings on terrain surface
-          strokeWidth: CONFIG.qualityLevel < 2 ? 0 : 1 // Reduce line rendering for better performance
-        })
-        .then(function() {
-          try {
-            // Apply visibility optimization based on distance
-            const cameraPosition = viewer.camera.positionCartographic;
-            const cameraHeight = cameraPosition.height;
-            
-            viewer.dataSources.add(dataSource);
-            loadedTiles[tileId] = {
-              dataSource: dataSource,
-              lastAccessed: Date.now(),
-              cancelProcessing: null
-            };
-            loadedTileCount++;
-            
-            // Start processing buildings in this tile
-            loadedTiles[tileId].cancelProcessing = processBuildingsInTile(dataSource);
-            return dataSource;
-          } catch (error) {
-            log(`Error setting up tile ${tileId}: ${error.message}`);
-            return dataSource;
-          }
-        })
-        .catch(function(error) {
-          log(`Error loading tile ${tileId}: ${error.message}`);
-          return null;
-        });
-    }
-    
-    // Load the full tile
-    function loadAllTiles(viewer) {
-      log("Loading the full tile...");
-      
-      // Load the single full tile
-      loadTile(viewer, "full")
-        .then(() => {
-          log("Full tile loaded successfully!");
-        })
-        .catch(error => {
-          log(`Error loading full tile: ${error.message}`);
-        });
-    }
-    
     // Initialize the application with token consideration
     let viewer;
-    function initializeViewer(token) {
+    async function initializeViewer(token) {
       try {
         log("Initializing viewer...");
         
-        // Create the Cesium viewer with or without terrain based on token availability
+        // Create the Cesium viewer without terrain first
         const viewerOptions = {
-          baseLayerPicker: true,
+          baseLayerPicker: false, 
           geocoder: false,
           homeButton: true,
           sceneModePicker: true,
@@ -290,23 +165,35 @@
           targetFrameRate: 30,
           scene3DOnly: true,
           shadows: false,
-          useBrowserRecommendedResolution: true
+          useBrowserRecommendedResolution: true,
         };
-        
-        // Only use terrain if we have a valid token
-        if (token) {
-          viewerOptions.terrainProvider = Cesium.Terrain.fromWorldTerrain({
-            requestVertexNormals: false,
-            requestWaterMask: false
-          });
-          log("Using terrain with authenticated token");
-        } else {
-          // Use the default EllipsoidTerrainProvider (no auth needed)
-          log("Using basic ellipsoid terrain (no authentication)");
-        }
         
         // Create the viewer
         viewer = new Cesium.Viewer('cesiumContainer', viewerOptions);
+        
+        // Then add the Google Photorealistic 3D Tiles
+        log("Loading Google Photorealistic 3D Tiles...");
+        const tileset = viewer.scene.primitives.add(
+          await Cesium.Cesium3DTileset.fromIonAssetId(2275207)
+        );
+        log("Google Photorealistic 3D Tiles loaded successfully");
+        
+        // Only try to add world terrain after 3D Tiles are loaded if we have a token
+        if (token) {
+          try {
+            log("Adding Cesium World Terrain...");
+            // Create the terrain provider using a direct approach
+            const terrainProvider = await Cesium.createWorldTerrainAsync({
+              requestVertexNormals: false,
+              requestWaterMask: false
+            });
+            // Set it after viewer creation
+            viewer.terrainProvider = terrainProvider;
+            log("World Terrain added successfully");
+          } catch (terrainError) {
+            log("Error adding world terrain: " + terrainError.message);
+          }
+        }
         
         // Initialize Cesium utilities with our viewer instance
         if (window.CesiumUtils && typeof window.CesiumUtils.initCesiumUtils === 'function') {
@@ -335,13 +222,6 @@
         // Ensure globe is visible with explicit settings
         viewer.scene.globe.show = true;
         viewer.scene.mode = Cesium.SceneMode.SCENE3D;
-        
-        // Add an explicit imagery layer if none exists
-        if (viewer.imageryLayers.length === 0) {
-          viewer.imageryLayers.addImageryProvider(
-            new Cesium.IonImageryProvider({ assetId: 3 }) // Bing Maps Aerial
-          );
-        }
         
         // Set view to see the globe
         viewer.camera.flyTo({
@@ -397,17 +277,9 @@
           destination: Cesium.Cartesian3.fromDegrees(4.37, 50.86, 8000)
         });
         
-        // Load all tiles immediately
-        loadAllTiles(viewer);
-        
         // Initialize mobility system after buildings are loaded
         setTimeout(function() {
           if (typeof initMobility === 'function') {
-            // Pass simulation settings from global config
-            if (typeof MOBILITY_CONFIG !== 'undefined') {
-              MOBILITY_CONFIG.useSimulation = CONFIG.mobilitySimulation;
-              MOBILITY_CONFIG.autoSwitchToSimulation = CONFIG.mobilityAutoSwitch;
-            }
             initMobility(viewer);
           } else {
             log("Mobility system not available");
