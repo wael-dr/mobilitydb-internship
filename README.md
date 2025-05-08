@@ -1,42 +1,32 @@
-# Brussels 3D Buildings & Public Transport Visualization
+# Geopackage to GeoJSON
 
-Interactive 3D visualization of Brussels buildings with real-time public transport overlay.
-
-![Demo GIF](demo.gif?raw=true "Demo GIF")
+This conversion isn't used in the current implementation of the project, as we are now using directly the `Google Photorealistic 3D Tiles`.
 
 ## Prerequisites
 
 - Geopackage file named `bxl.gpkg`
 - Python 3 with: `requests`, `fiona`, `shapely`, `numpy`, `tqdm`
 
-## Quick Start
+## How to convert
 
-1. Prepare data:
+   ### Convert the Geopackage from EPSG:31370 (Belgian Lambert 72) to EPSG:4326 (WGS 84)
    ```bash
-   # Convert the Geopackage from EPSG:31370 (Belgian Lambert 72)
-   # to EPSG:4326 (WGS 84), the standard system
    ./first.sh
-   
-   # Set up an isolated Python environment for dependencies
+   ```
+
+   ### Set up an isolated Python environment for dependencies, and activate it
+   ```bash
    python3 -m venv venv
    
-   # Activate the virtual environment
    source venv/bin/activate
-   
-   # Extract height (Z) values from 3D geometries
-   # and add them as a new field
+   ```
+
+   ### Extract height (Z) values from 3D geometries and add them as a new field
+   ```bash
    python3 second.py
+   ```
 
-   # Convert to GeoJSON
+   ### Convert to GeoJSON
+   ```bash
    ./generate_tiles.sh
-   ```
-
-2. Start server and view:
-   ```bash
-   http-server --cors -p 8000
-   ```
-
-3. When finished:
-   ```bash
-   ./cleanup.sh  # Optional: removes temp files
    ```
