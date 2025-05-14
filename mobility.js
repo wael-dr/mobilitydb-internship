@@ -683,32 +683,6 @@ function setupMobilityControls(viewer) {
       deselectVehicle();
     });
   }
-  
-  // Debug info section
-  const controlsDiv = document.getElementById('vehicleControls');
-  if (controlsDiv) {
-    const debugContainer = document.createElement('div');
-    debugContainer.className = 'control-group';
-    debugContainer.innerHTML = `
-      <label><input type="checkbox" id="showDebugInfo" /> Show API Debug Info</label>
-      <div id="apiDebugInfo" style="display:none; margin-top: 10px; padding: 5px; background: #333; color: #eee; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px;">
-        <p>Last Error: <span id="lastApiError">None</span></p>
-        <p>Raw Response: <span id="lastRawResponse">None</span></p>
-      </div>
-    `;
-    controlsDiv.appendChild(debugContainer);
-    
-    const showDebugInfoCheckbox = document.getElementById('showDebugInfo');
-    if (showDebugInfoCheckbox) {
-      showDebugInfoCheckbox.addEventListener('change', function(e) {
-        const apiDebugInfo = document.getElementById('apiDebugInfo');
-        if (apiDebugInfo) {
-          apiDebugInfo.style.display = e.target.checked ? 'block' : 'none';
-          updateDebugInfo();
-        }
-      });
-    }
-  }
 }
 
 // Start/restart data update process
@@ -877,22 +851,5 @@ function logVehicleTypeStats() {
 function log(message) {
   if (MOBILITY_CONFIG.debugMode) {
     console.log(`[Mobility] ${message}`);
-    
-    // Update log element in UI if it exists
-    const logElement = document.getElementById('mobilityLog');
-    if (logElement) {
-      const timestamp = new Date().toLocaleTimeString();
-      const logEntry = document.createElement('div');
-      logEntry.textContent = `${timestamp}: ${message}`;
-      logElement.appendChild(logEntry);
-      
-      // Limit number of log entries
-      while (logElement.childElementCount > 100) {
-        logElement.removeChild(logElement.firstChild);
-      }
-      
-      // Scroll to bottom
-      logElement.scrollTop = logElement.scrollHeight;
-    }
   }
 }
