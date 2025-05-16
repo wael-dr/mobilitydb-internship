@@ -14,8 +14,3 @@ Interactive 3D visualization of Brussels buildings with real-time public transpo
    ```bash
    http-server --cors -p 8000 
    ```
-
-   ### When finished
-   ```bash
-   ./cleanup.sh  # Optional: removes temp files
-   ```
