@@ -6,7 +6,7 @@
 // Configuration
 const MOBILITY_CONFIG = {
   apiUrl: 'https://api.mobilitytwin.brussels/stib/trips',  // Trips endpoint for moving vehicles
-  updateInterval: 3000, // 3 seconds
+  updateInterval: 5000, // 5 seconds
   maxRetries: 3,
   vehicleHeightOffset: 2, // meters above ground
   maxVehicles: 5000,        // maximum number of vehicles to display for performance
@@ -114,8 +114,8 @@ function fetchVehicleData() {
   
   // Calculate start and end timestamps for the API request
   const currentTime = Math.floor(Date.now() / 1000);  // Current time in seconds
-  const startTimestamp = currentTime - 90;  // 90 seconds ago
-  const endTimestamp = currentTime + 90;    // 90 seconds in the future
+  const startTimestamp = currentTime - 120;           // Start
+  const endTimestamp = currentTime;                   // End
   
   // Build the URL with query parameters
   const fullUrl = `${apiUrl}?start_timestamp=${startTimestamp}&end_timestamp=${endTimestamp}`;
