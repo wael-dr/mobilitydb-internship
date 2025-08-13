@@ -25,6 +25,15 @@
     .vehicle-type-toggle { margin: 5px; }
     #dataStatus { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,0.7);
                  color: white; padding: 5px 10px; z-index: 1000; font-size: 12px; }
+    
+    /* Tileset controls styling */
+    #tilesetControls { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); 
+                       background: rgba(0,0,0,0.7); color: white; padding: 15px; z-index: 1000; 
+                       width: 200px; border-radius: 5px; }
+    #tilesetControls h3 { margin-top: 0; margin-bottom: 10px; text-align: center; }
+    .tileset-toggle { margin: 10px 0; }
+    .tileset-toggle label { display: flex; align-items: center; cursor: pointer; }
+    .tileset-toggle input[type="checkbox"] { margin-right: 8px; }
   </style>
 </head>
 <body>
@@ -60,6 +69,23 @@
   </div>
   
   <div id="dataStatus">Data: Not Connected</div>
+
+  <!-- Tileset controls -->
+  <div id="tilesetControls">
+    <h3>3D Tilesets</h3>
+    <div class="tileset-toggle">
+      <label><input type="checkbox" id="googleTiles" checked /> Google 3D Photorealistic</label>
+    </div>
+    <div class="tileset-toggle">
+      <label><input type="checkbox" id="batchTiles" /> BatCH2</label>
+    </div>
+    <div class="tileset-toggle">
+      <label><input type="checkbox" id="osmTiles" /> OSM Buildings</label>
+    </div>
+    <div class="tileset-toggle">
+      <label><input type="checkbox" id="bingImagery" /> Bing Maps Aerial</label>
+    </div>
+  </div>
 
   <script src="mobility.js"></script>
   <script src="cesium.js"></script>
@@ -147,6 +173,13 @@
     
     // Initialize the application with token consideration
     let viewer;
+    let tilesets = {
+      google: null,
+      batch: null,
+      osm: null
+    };
+    let bingImageryLayer = null;
+    
     async function initializeViewer(token) {
       try {
         log("Initializing viewer...");
@@ -171,27 +204,40 @@
         // Create the viewer
         viewer = new Cesium.Viewer('cesiumContainer', viewerOptions);
         
-        // Then add the Google Photorealistic 3D Tiles
-        log("Loading Google Photorealistic 3D Tiles...");
-        const tileset = viewer.scene.primitives.add(
-          await Cesium.Cesium3DTileset.fromIonAssetId(2275207)
-        );
-        log("Google Photorealistic 3D Tiles loaded successfully");
+        // Load all tilesets
+        await loadTilesets();
+        
+        // Add Cesium World Terrain (ID 1) if we have a token
+        if (token) {
+          try {
+            log("Adding Cesium World Terrain...");
+            viewer.scene.setTerrain(
+              new Cesium.Terrain(
+                Cesium.CesiumTerrainProvider.fromIonAssetId(1),
+              ),
+            );
+            log("Cesium World Terrain added successfully");
+          } catch (terrainError) {
+            log("Error adding Cesium World Terrain: " + terrainError.message);
+          }
+        }
         
         // Only try to add world terrain after 3D Tiles are loaded if we have a token
         if (token) {
           try {
-            log("Adding Cesium World Terrain...");
+            log("Adding legacy world terrain as fallback...");
             // Create the terrain provider using a direct approach
             const terrainProvider = await Cesium.createWorldTerrainAsync({
               requestVertexNormals: false,
               requestWaterMask: false
             });
-            // Set it after viewer creation
-            viewer.terrainProvider = terrainProvider;
-            log("World Terrain added successfully");
+            // Only set if no terrain was set above
+            if (!viewer.scene.terrain) {
+              viewer.terrainProvider = terrainProvider;
+              log("Legacy world terrain added successfully");
+            }
           } catch (terrainError) {
-            log("Error adding world terrain: " + terrainError.message);
+            log("Error adding legacy world terrain: " + terrainError.message);
           }
         }
         
@@ -269,6 +315,9 @@
         
         log("Viewer created successfully with globe enabled");
         
+        // Set up tileset toggle controls
+        setupTilesetControls();
+        
         // Hide the loading overlay now that the viewer is created
         document.getElementById('loadingOverlay').style.display = 'none';
         
@@ -290,6 +339,92 @@
         log("FATAL ERROR: " + error.message);
         document.getElementById('loadingOverlay').innerHTML = 'Error initializing viewer. See console for details.';
       }
+    }
+    
+    // Function to load all tilesets
+    async function loadTilesets() {
+      try {
+        // Load Google Photorealistic 3D Tiles (enabled by default)
+        log("Loading Google Photorealistic 3D Tiles...");
+        tilesets.google = viewer.scene.primitives.add(
+          await Cesium.Cesium3DTileset.fromIonAssetId(2275207)
+        );
+        log("Google Photorealistic 3D Tiles loaded successfully");
+        
+        // Load BatCH2 tiles (disabled by default)
+        log("Loading BatCH2 tiles...");
+        tilesets.batch = viewer.scene.primitives.add(
+          await Cesium.Cesium3DTileset.fromIonAssetId(3622832)
+        );
+        tilesets.batch.show = false; // Hidden by default
+        log("BatCH2 tiles loaded successfully");
+        
+        // Load OSM Buildings (disabled by default)
+        log("Loading OSM Buildings...");
+        tilesets.osm = viewer.scene.primitives.add(
+          await Cesium.Cesium3DTileset.fromIonAssetId(96188)
+        );
+        tilesets.osm.show = false; // Hidden by default
+        log("OSM Buildings loaded successfully");
+        
+      } catch (error) {
+        log("Error loading tilesets: " + error.message);
+      }
+    }
+    
+    // Function to set up tileset toggle controls
+    function setupTilesetControls() {
+      const googleToggle = document.getElementById('googleTiles');
+      const batchToggle = document.getElementById('batchTiles');
+      const osmToggle = document.getElementById('osmTiles');
+      const bingToggle = document.getElementById('bingImagery');
+      
+      googleToggle.addEventListener('change', function() {
+        if (tilesets.google) {
+          tilesets.google.show = this.checked;
+          log(`Google tiles: ${this.checked ? 'shown' : 'hidden'}`);
+        }
+      });
+      
+      batchToggle.addEventListener('change', function() {
+        if (tilesets.batch) {
+          tilesets.batch.show = this.checked;
+          log(`BatCH2 tiles: ${this.checked ? 'shown' : 'hidden'}`);
+        }
+      });
+      
+      osmToggle.addEventListener('change', function() {
+        if (tilesets.osm) {
+          tilesets.osm.show = this.checked;
+          log(`OSM Buildings: ${this.checked ? 'shown' : 'hidden'}`);
+        }
+      });
+      
+      bingToggle.addEventListener('change', async function() {
+        if (this.checked) {
+          // Load Bing Maps Aerial imagery if not already loaded
+          if (!bingImageryLayer && Cesium.Ion.defaultAccessToken) {
+            try {
+              log("Loading Bing Maps Aerial with Labels imagery...");
+              const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(3);
+              bingImageryLayer = viewer.imageryLayers.addImageryProvider(imageryProvider);
+              log("Bing Maps Aerial with Labels imagery loaded and shown");
+            } catch (imageryError) {
+              log("Error loading Bing Maps imagery: " + imageryError.message);
+              this.checked = false; // Uncheck if failed to load
+            }
+          } else if (bingImageryLayer) {
+            bingImageryLayer.show = true;
+            log("Bing Maps imagery: shown");
+          }
+        } else {
+          // Hide the imagery layer
+          if (bingImageryLayer) {
+            bingImageryLayer.show = false;
+            log("Bing Maps imagery: hidden");
+          }
+        }
+      });
     }
     
     // Start trying tokens
