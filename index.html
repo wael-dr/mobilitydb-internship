@@ -20,8 +20,12 @@
     /* Mobility styling */
     #vehicleControls { position: absolute; top: 140px; left: 10px; background: rgba(0,0,0,0.7);
                       color: white; padding: 10px; z-index: 1000; width: 250px; }
-    #vehicleInfo { position: absolute; bottom: 10px; left: 320px; background: rgba(0,0,0,0.7);
-                  color: white; padding: 10px; z-index: 1000; display: none; width: 300px; }
+    #vehicleInfo { position: absolute; bottom: 10px; left: 320px; background: rgba(0,0,0,0.8);
+                  color: white; padding: 15px; z-index: 1000; display: none; width: 350px; 
+                  max-height: 400px; overflow-y: auto; border-radius: 5px; }
+    #vehicleInfo table { width: 100%; border-collapse: collapse; }
+    #vehicleInfo table td { border-bottom: 1px solid rgba(255,255,255,0.2); padding: 4px 2px; }
+    #vehicleInfo h3 { margin-top: 0; margin-bottom: 10px; color: #ffcc00; }
     .vehicle-type-toggle { margin: 5px; }
     #dataStatus { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,0.7);
                  color: white; padding: 5px 10px; z-index: 1000; font-size: 12px; }
@@ -57,14 +61,23 @@
         
       </select>
     </div>
+    <div class="control-group">
+      <label for="timeRangeSelect">Time Range:</label>
+      <select id="timeRangeSelect">
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute</option>
+        <option value="120" selected>2 minutes</option>
+        <option value="180">3 minutes</option>
+      </select>
+    </div>
     <div>
       <button id="refreshNowButton">Refresh Now</button>
     </div>
   </div>
   
   <div id="vehicleInfo">
-    <h3>Vehicle Details</h3>
-    <div id="vehicleDetails">Select a vehicle to see details</div>
+    <h3 id="infoTitle">Details</h3>
+    <div id="vehicleDetails">Select a vehicle or building to see details</div>
     <button id="closeVehicleInfo">Close</button>
   </div>
   
@@ -74,7 +87,7 @@
   <div id="tilesetControls">
     <h3>3D Tilesets</h3>
     <div class="tileset-toggle">
-      <label><input type="checkbox" id="googleTiles" checked /> Google 3D Photorealistic</label>
+      <label><input type="checkbox" id="googleTiles" /> Google 3D Photorealistic</label>
     </div>
     <div class="tileset-toggle">
       <label><input type="checkbox" id="batchTiles" /> BatCH2</label>
@@ -199,10 +212,15 @@
           scene3DOnly: true,
           shadows: false,
           useBrowserRecommendedResolution: true,
+          imageryProvider: false  // Disable default imagery provider
         };
         
         // Create the viewer
         viewer = new Cesium.Viewer('cesiumContainer', viewerOptions);
+        
+        // Remove any default imagery layers that might still be created
+        viewer.imageryLayers.removeAll();
+        log("All default imagery layers removed - clean slate");
         
         // Load all tilesets
         await loadTilesets();
@@ -344,11 +362,12 @@
     // Function to load all tilesets
     async function loadTilesets() {
       try {
-        // Load Google Photorealistic 3D Tiles (enabled by default)
+        // Load Google Photorealistic 3D Tiles (disabled by default)
         log("Loading Google Photorealistic 3D Tiles...");
         tilesets.google = viewer.scene.primitives.add(
           await Cesium.Cesium3DTileset.fromIonAssetId(2275207)
         );
+        tilesets.google.show = false; // Hidden by default
         log("Google Photorealistic 3D Tiles loaded successfully");
         
         // Load BatCH2 tiles (disabled by default)
@@ -402,27 +421,29 @@
       
       bingToggle.addEventListener('change', async function() {
         if (this.checked) {
-          // Load Bing Maps Aerial imagery if not already loaded
-          if (!bingImageryLayer && Cesium.Ion.defaultAccessToken) {
+          // Remove all existing imagery layers first to ensure clean state
+          viewer.imageryLayers.removeAll();
+          
+          // Add Bing Maps Aerial imagery
+          if (Cesium.Ion.defaultAccessToken) {
             try {
               log("Loading Bing Maps Aerial with Labels imagery...");
-              const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(3);
+              const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(2);
               bingImageryLayer = viewer.imageryLayers.addImageryProvider(imageryProvider);
               log("Bing Maps Aerial with Labels imagery loaded and shown");
             } catch (imageryError) {
               log("Error loading Bing Maps imagery: " + imageryError.message);
               this.checked = false; // Uncheck if failed to load
             }
-          } else if (bingImageryLayer) {
-            bingImageryLayer.show = true;
-            log("Bing Maps imagery: shown");
+          } else {
+            log("No Cesium Ion token available for Bing Maps imagery");
+            this.checked = false;
           }
         } else {
-          // Hide the imagery layer
-          if (bingImageryLayer) {
-            bingImageryLayer.show = false;
-            log("Bing Maps imagery: hidden");
-          }
+          // Remove all imagery layers - back to clean black globe
+          viewer.imageryLayers.removeAll();
+          bingImageryLayer = null;
+          log("All imagery removed - showing clean globe");
         }
       });
     }

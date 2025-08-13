@@ -7,9 +7,10 @@
 const MOBILITY_CONFIG = {
   apiUrl: 'https://api.mobilitytwin.brussels/stib/trips',  // Trips endpoint for moving vehicles
   updateInterval: 5000, // 5 seconds
+  timeRange: 120, // seconds - time range for API data (default 2 minutes)
   maxRetries: 3,
   vehicleHeightOffset: 2, // meters above ground
-  maxVehicles: 5000,        // maximum number of vehicles to display for performance
+  maxVehicles: 50000,        // maximum number of vehicles to display for performance
   defaultVehicleScale: 1.5,
   vehicleColors: {
     bus: Cesium.Color.fromCssColorString('#3498db'),
@@ -28,8 +29,9 @@ const MOBILITY_CONFIG = {
   // Terrain sampling configuration
   enableTerrainSampling: true,  // Enable terrain height sampling
   terrainSamplingCache: true,   // Cache terrain heights for performance
-  terrainRaycastHeight: 1000,   // Height in meters to start raycasting from
-  terrainSampleSpacing: 0.001   // Grid spacing for terrain sampling cache (degrees)
+  terrainSampleSpacing: 0.001,  // Grid spacing for terrain sampling cache (degrees)
+  terrainBatchSize: 50,         // Number of positions to sample in one batch
+  terrainBatchInterval: 1000    // Interval in milliseconds between terrain sampling batches
 };
 
 // Helper function to determine vehicle type based on line ID
@@ -63,7 +65,10 @@ let mobData = {
   lastApiError: null,            // Store last API error for debugging
   lastRawResponse: null,         // Store last raw API response for debugging
   temporalSyncDone: false,       // Indicator to track if temporal synchronization has been done
-  terrainHeightCache: {}         // Cache for sampled terrain heights
+  terrainHeightCache: {},        // Cache for sampled terrain heights
+  terrainSamplingQueue: new Set(), // Queue for positions that need terrain sampling
+  isTerrainSampling: false,      // Flag to prevent concurrent terrain sampling
+  vehiclesNeedingTerrainUpdate: new Map() // Map of vehicles that need position updates when terrain is available
 };
 
 // Initialize the mobility data system
@@ -89,8 +94,11 @@ function initMobility(viewer) {
   // Set up UI event handlers
   setupMobilityControls(viewer);
   
-  // Clear terrain height cache
+  // Clear terrain height cache and sampling queue
   mobData.terrainHeightCache = {};
+  mobData.terrainSamplingQueue.clear();
+  mobData.isTerrainSampling = false;
+  mobData.vehiclesNeedingTerrainUpdate.clear();
   
   // Start data retrieval immediately
   startVehicleDataUpdates();
@@ -114,7 +122,7 @@ function fetchVehicleData() {
   
   // Calculate start and end timestamps for the API request
   const currentTime = Math.floor(Date.now() / 1000);  // Current time in seconds
-  const startTimestamp = currentTime - 120;           // Start
+  const startTimestamp = currentTime - MOBILITY_CONFIG.timeRange;           // Start
   const endTimestamp = currentTime;                   // End
   
   // Build the URL with query parameters
@@ -210,8 +218,8 @@ function fetchVehicleData() {
     });
 }
 
-// Sample terrain height from 3D Tiles using raycasting
-function sampleTerrainHeight(longitude, latitude) {
+// Sample terrain height using Cesium's sampleTerrainMostDetailed
+async function sampleTerrainHeightAsync(longitude, latitude) {
   // Check if height is already in cache
   const cacheKey = getCacheKey(longitude, latitude);
   if (MOBILITY_CONFIG.terrainSamplingCache && mobData.terrainHeightCache[cacheKey] !== undefined) {
@@ -219,8 +227,8 @@ function sampleTerrainHeight(longitude, latitude) {
   }
   
   const viewer = window.viewer;
-  if (!viewer || !viewer.scene) {
-    log("Viewer not available for terrain sampling");
+  if (!viewer || !viewer.scene || !viewer.scene.terrainProvider) {
+    log("Viewer or terrain provider not available for terrain sampling");
     return 0; // Default height if viewer not available
   }
   
@@ -230,33 +238,30 @@ function sampleTerrainHeight(longitude, latitude) {
   }
   
   try {
-    // Create a ray starting above the target point
-    const rayHeight = MOBILITY_CONFIG.terrainRaycastHeight;
-    const rayStart = Cesium.Cartesian3.fromDegrees(longitude, latitude, rayHeight);
-    const rayEnd = Cesium.Cartesian3.fromDegrees(longitude, latitude, 0);
-    const direction = Cesium.Cartesian3.subtract(rayEnd, rayStart, new Cesium.Cartesian3());
-    Cesium.Cartesian3.normalize(direction, direction);
+    // Create cartographic position for sampling
+    const positions = [Cesium.Cartographic.fromDegrees(longitude, latitude)];
     
-    const ray = new Cesium.Ray(rayStart, direction);
-    const intersection = viewer.scene.pickFromRay(ray, []);
+    // Sample terrain using the most detailed available data
+    const sampledPositions = await Cesium.sampleTerrainMostDetailed(
+      viewer.scene.terrainProvider, 
+      positions
+    );
     
     let height = 0;
     
-    if (Cesium.defined(intersection) && Cesium.defined(intersection.position)) {
-      // Convert the intersection position to cartographic (longitude, latitude, height)
-      const cartographic = Cesium.Cartographic.fromCartesian(intersection.position);
-      height = cartographic.height;
+    if (sampledPositions && sampledPositions.length > 0 && 
+        Cesium.defined(sampledPositions[0].height)) {
+      height = sampledPositions[0].height;
       
       if (MOBILITY_CONFIG.debugMode && Math.random() < 0.01) { // Log only a sample of heights to avoid flooding
         log(`Sampled terrain height at (${longitude.toFixed(5)}, ${latitude.toFixed(5)}): ${height.toFixed(2)}m`);
       }
     } else {
-      // If no intersection is found, try the ellipsoid
-      const cartographic = Cesium.Cartographic.fromDegrees(longitude, latitude);
-      height = 0; // Ellipsoid height is 0
+      // If no height is available, use ellipsoid height (0)
+      height = 0;
       
       if (MOBILITY_CONFIG.debugMode && Math.random() < 0.01) {
-        log(`No terrain intersection at (${longitude.toFixed(5)}, ${latitude.toFixed(5)}), using ellipsoid height`);
+        log(`No terrain height available at (${longitude.toFixed(5)}, ${latitude.toFixed(5)}), using ellipsoid height`);
       }
     }
     
@@ -272,6 +277,23 @@ function sampleTerrainHeight(longitude, latitude) {
   }
 }
 
+// Synchronous wrapper for terrain height sampling with cache fallback
+function sampleTerrainHeight(longitude, latitude) {
+  // Check if height is already in cache
+  const cacheKey = getCacheKey(longitude, latitude);
+  if (MOBILITY_CONFIG.terrainSamplingCache && mobData.terrainHeightCache[cacheKey] !== undefined) {
+    return mobData.terrainHeightCache[cacheKey];
+  }
+  
+  // If not in cache, return 0 for now and queue for async sampling
+  if (MOBILITY_CONFIG.enableTerrainSampling) {
+    // Queue this position for async terrain sampling
+    queueTerrainSampling(longitude, latitude);
+  }
+  
+  return 0; // Return default height immediately
+}
+
 // Generate a cache key based on rounded coordinates to reduce duplicate sampling
 function getCacheKey(longitude, latitude) {
   // Round to a grid based on terrainSampleSpacing
@@ -279,6 +301,176 @@ function getCacheKey(longitude, latitude) {
   const roundedLon = Math.round(longitude / spacing) * spacing;
   const roundedLat = Math.round(latitude / spacing) * spacing;
   return `${roundedLon.toFixed(6)}_${roundedLat.toFixed(6)}`;
+}
+
+// Queue position for async terrain sampling
+function queueTerrainSampling(longitude, latitude) {
+  const cacheKey = getCacheKey(longitude, latitude);
+  mobData.terrainSamplingQueue.add(cacheKey);
+  
+  // Start processing the queue if not already running
+  if (!mobData.isTerrainSampling) {
+    processTerrainSamplingQueue();
+  }
+}
+
+// Process the terrain sampling queue in batches
+async function processTerrainSamplingQueue() {
+  if (mobData.isTerrainSampling || mobData.terrainSamplingQueue.size === 0) {
+    return;
+  }
+  
+  mobData.isTerrainSampling = true;
+  
+  try {
+    const viewer = window.viewer;
+    if (!viewer || !viewer.scene || !viewer.scene.terrainProvider) {
+      log("Viewer or terrain provider not available for terrain sampling");
+      mobData.isTerrainSampling = false;
+      return;
+    }
+    
+    // Process queue in batches
+    while (mobData.terrainSamplingQueue.size > 0) {
+      const batch = [];
+      const cacheKeys = [];
+      const queueArray = Array.from(mobData.terrainSamplingQueue);
+      
+      // Take up to terrainBatchSize items from queue
+      for (let i = 0; i < Math.min(MOBILITY_CONFIG.terrainBatchSize, queueArray.length); i++) {
+        const cacheKey = queueArray[i];
+        mobData.terrainSamplingQueue.delete(cacheKey);
+        
+        // Skip if already in cache
+        if (mobData.terrainHeightCache[cacheKey] !== undefined) {
+          continue;
+        }
+        
+        // Parse longitude and latitude from cache key
+        const [lonStr, latStr] = cacheKey.split('_');
+        const longitude = parseFloat(lonStr);
+        const latitude = parseFloat(latStr);
+        
+        batch.push(Cesium.Cartographic.fromDegrees(longitude, latitude));
+        cacheKeys.push(cacheKey);
+      }
+      
+      if (batch.length > 0) {
+        try {
+          // Sample terrain for the batch
+          const sampledPositions = await Cesium.sampleTerrainMostDetailed(
+            viewer.scene.terrainProvider,
+            batch
+          );
+          
+          // Cache the results
+          for (let i = 0; i < sampledPositions.length; i++) {
+            const height = Cesium.defined(sampledPositions[i].height) ? 
+                          sampledPositions[i].height : 0;
+            mobData.terrainHeightCache[cacheKeys[i]] = height;
+          }
+          
+          if (MOBILITY_CONFIG.debugMode) {
+            log(`Sampled terrain heights for ${sampledPositions.length} positions`);
+          }
+          
+          // Update any vehicles that were waiting for these terrain heights
+          updateVehiclesWithNewTerrain(cacheKeys);
+        } catch (error) {
+          log(`Error in batch terrain sampling: ${error.message}`);
+          // Cache 0 height for failed positions to avoid infinite retries
+          for (const cacheKey of cacheKeys) {
+            mobData.terrainHeightCache[cacheKey] = 0;
+          }
+        }
+      }
+      
+      // Wait before processing next batch to avoid overwhelming the system
+      if (mobData.terrainSamplingQueue.size > 0) {
+        await new Promise(resolve => setTimeout(resolve, MOBILITY_CONFIG.terrainBatchInterval));
+      }
+    }
+  } finally {
+    mobData.isTerrainSampling = false;
+  }
+}
+
+// Update vehicles with newly available terrain data
+function updateVehiclesWithNewTerrain(updatedCacheKeys) {
+  const updatedKeySet = new Set(updatedCacheKeys);
+  
+  // Check which vehicles need updates based on the newly available terrain data
+  for (const [vehicleId, vehicleData] of mobData.vehiclesNeedingTerrainUpdate.entries()) {
+    let needsUpdate = false;
+    
+    // Check if any of the vehicle's positions now have terrain data
+    for (const positionData of vehicleData.positions) {
+      const cacheKey = getCacheKey(positionData.longitude, positionData.latitude);
+      if (updatedKeySet.has(cacheKey)) {
+        needsUpdate = true;
+        break;
+      }
+    }
+    
+    if (needsUpdate) {
+      // Update the vehicle's position with new terrain data
+      updateVehiclePositions(vehicleId, vehicleData);
+      // Remove from pending updates
+      mobData.vehiclesNeedingTerrainUpdate.delete(vehicleId);
+    }
+  }
+}
+
+// Update a specific vehicle's positions with terrain data
+function updateVehiclePositions(vehicleId, vehicleData) {
+  const entity = mobData.dataSource.entities.getById(vehicleId);
+  if (!entity) return;
+  
+  const sampledPosition = new Cesium.SampledPositionProperty();
+  entity.position = sampledPosition;
+  entity.orientation = new Cesium.VelocityOrientationProperty(sampledPosition);
+  
+  let firstTime = null;
+  let lastTime = null;
+  
+  // Process all stored positions with updated terrain heights
+  for (const positionData of vehicleData.positions) {
+    const terrainHeight = sampleTerrainHeight(positionData.longitude, positionData.latitude);
+    
+    const cartesianPosition = Cesium.Cartesian3.fromDegrees(
+      positionData.longitude,
+      positionData.latitude,
+      terrainHeight + MOBILITY_CONFIG.vehicleHeightOffset
+    );
+    
+    sampledPosition.addSample(positionData.time, cartesianPosition);
+    
+    if (!firstTime || Cesium.JulianDate.lessThan(positionData.time, firstTime)) {
+      firstTime = positionData.time;
+    }
+    if (!lastTime || Cesium.JulianDate.greaterThan(positionData.time, lastTime)) {
+      lastTime = positionData.time;
+    }
+  }
+  
+  // Set interpolation options
+  sampledPosition.interpolationAlgorithm = Cesium.LagrangePolynomialApproximation;
+  sampledPosition.interpolationDegree = 5;
+  
+  // Update availability
+  if (firstTime && lastTime) {
+    const bufferSeconds = 20;
+    const extendedLastTime = Cesium.JulianDate.clone(lastTime);
+    Cesium.JulianDate.addSeconds(lastTime, bufferSeconds, extendedLastTime);
+    
+    const interval = new Cesium.TimeInterval({
+      start: firstTime,
+      stop: extendedLastTime
+    });
+    
+    entity.availability.removeAll();
+    entity.availability.addInterval(interval);
+  }
 }
 
 // Process vehicle data
@@ -384,6 +576,10 @@ function processVehicleData(data) {
               entity.orientation = new Cesium.VelocityOrientationProperty(sampledPosition);
           }
 
+          // Store position data for terrain processing
+          const vehiclePositions = [];
+          let allTerrainAvailable = true;
+
           for (let i = 0; i < feature.temporalGeometry.coordinates.length; i++) {
             const coord = feature.temporalGeometry.coordinates[i];
             const datetime = feature.temporalGeometry.datetimes[i];
@@ -397,10 +593,22 @@ function processVehicleData(data) {
             try {
                 const julianDate = Cesium.JulianDate.fromIso8601(datetime);
                 
-                // Sample terrain height at this coordinate
+                // Check if terrain height is available in cache
                 const terrainHeight = sampleTerrainHeight(coord[0], coord[1]);
+                const cacheKey = getCacheKey(coord[0], coord[1]);
                 
-                // Use terrain height plus vehicle offset
+                if (mobData.terrainHeightCache[cacheKey] === undefined) {
+                    allTerrainAvailable = false;
+                }
+                
+                // Store position data
+                vehiclePositions.push({
+                    longitude: coord[0],
+                    latitude: coord[1],
+                    time: julianDate
+                });
+                
+                // Use terrain height plus vehicle offset (will be 0 if not cached yet)
                 const cartesianPosition = Cesium.Cartesian3.fromDegrees(
                     coord[0], 
                     coord[1], 
@@ -420,6 +628,14 @@ function processVehicleData(data) {
             } catch (dateError) {
                 log(`Error parsing date ${datetime} or coordinates ${JSON.stringify(coord)} for vehicle ${vehicleId}: ${dateError}`);
             }
+          }
+          
+          // If not all terrain data is available, store vehicle for later update
+          if (!allTerrainAvailable && vehiclePositions.length > 0) {
+              mobData.vehiclesNeedingTerrainUpdate.set(vehicleId, {
+                  positions: vehiclePositions,
+                  entity: entity
+              });
           }
           
           // Set interpolation options for smoother movement
@@ -443,8 +659,21 @@ function processVehicleData(data) {
               julianDate = Cesium.JulianDate.now();
           }
           
-          // Sample terrain height at this coordinate
+          // Check if terrain height is available in cache
           const terrainHeight = sampleTerrainHeight(coord[0], coord[1]);
+          const cacheKey = getCacheKey(coord[0], coord[1]);
+          
+          // Store position data for terrain processing if needed
+          if (mobData.terrainHeightCache[cacheKey] === undefined) {
+              mobData.vehiclesNeedingTerrainUpdate.set(vehicleId, {
+                  positions: [{
+                      longitude: coord[0],
+                      latitude: coord[1],
+                      time: julianDate
+                  }],
+                  entity: entity
+              });
+          }
           
           // Use terrain height plus vehicle offset
           const cartesianPosition = Cesium.Cartesian3.fromDegrees(
@@ -658,6 +887,17 @@ function setupMobilityControls(viewer) {
     });
   }
   
+  // Time range selection
+  const timeRangeSelect = document.getElementById('timeRangeSelect');
+  if (timeRangeSelect) {
+    timeRangeSelect.addEventListener('change', function(e) {
+      MOBILITY_CONFIG.timeRange = parseInt(e.target.value);
+      log(`Time range changed to ${MOBILITY_CONFIG.timeRange} seconds`);
+      // Optionally refresh data immediately with new time range
+      fetchVehicleData();
+    });
+  }
+  
   // Manual refresh
   const refreshNowButton = document.getElementById('refreshNowButton');
   if (refreshNowButton) {
@@ -666,22 +906,54 @@ function setupMobilityControls(viewer) {
     });
   }
   
-  // Vehicle selection
+  // Object selection (vehicles and buildings)
   viewer.screenSpaceEventHandler.setInputAction(function(click) {
     const pickedObject = viewer.scene.pick(click.position);
-    if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.entityType === 'vehicle') {
-      selectVehicle(pickedObject.id.id); // Use entity.id
-    } else {
-      deselectVehicle();
+    
+    if (Cesium.defined(pickedObject)) {
+      // Handle vehicle selection
+      if (pickedObject.id && pickedObject.id.entityType === 'vehicle') {
+        selectVehicle(pickedObject.id.id); // Use entity.id
+        return;
+      }
+      
+      // Handle 3D tileset features (buildings)
+      if (pickedObject instanceof Cesium.Cesium3DTileFeature) {
+        handleBuildingClick(pickedObject);
+        return;
+      }
+      
+      // Handle primitive collections or other objects
+      if (pickedObject.primitive && pickedObject.primitive instanceof Cesium.Cesium3DTileset) {
+        // Try to get feature properties if available
+        const feature = pickedObject;
+        handleBuildingClick(feature);
+        return;
+      }
     }
+    
+    // If nothing relevant was clicked, close any open info panel
+    closeInfoPanel();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   
-  // Close vehicle info panel
+  // Close vehicle/building info panel
   const closeVehicleInfoButton = document.getElementById('closeVehicleInfo');
   if (closeVehicleInfoButton) {
     closeVehicleInfoButton.addEventListener('click', function() {
-      deselectVehicle();
+      closeInfoPanel();
     });
+  }
+}
+
+// Close the info panel (works for both vehicles and buildings)
+function closeInfoPanel() {
+  // Deselect vehicle if one is selected
+  deselectVehicle();
+  
+  // Hide the info panel regardless of what's displayed
+  const vehicleInfoDiv = document.getElementById('vehicleInfo');
+  if (vehicleInfoDiv) {
+    vehicleInfoDiv.style.display = 'none';
   }
 }
 
@@ -770,11 +1042,6 @@ function deselectVehicle() {
   }
   
   mobData.selectedVehicle = null;
-  
-  const vehicleInfoDiv = document.getElementById('vehicleInfo');
-  if (vehicleInfoDiv) {
-    vehicleInfoDiv.style.display = 'none';
-  }
 }
 
 // Display vehicle info from entity
@@ -806,6 +1073,123 @@ function displayVehicleInfo(entity) {
   }
   
   html += `</table>`;
+  
+  // Update content and show panel
+  detailsDiv.innerHTML = html;
+  infoDiv.style.display = 'block';
+}
+
+// Handle building click from 3D tileset
+function handleBuildingClick(feature) {
+  if (!feature) return;
+  
+  try {
+    // Deselect any selected vehicle first
+    deselectVehicle();
+    
+    // Get all property names and values from the feature
+    const properties = {};
+    let propertyNames = [];
+    
+    // Try to get property names - different approaches for different Cesium versions
+    if (feature.getPropertyNames) {
+      propertyNames = feature.getPropertyNames();
+    } else if (feature.getPropertyIds) {
+      propertyNames = feature.getPropertyIds();
+    } else {
+      // Fallback: try common OSM building property names
+      const commonProps = [
+        'name', 'building', 'height', 'levels', 'building:levels', 'addr:street', 
+        'addr:housenumber', 'addr:city', 'amenity', 'shop', 'office', 'tourism',
+        'building:use', 'building:material', 'roof:shape', 'roof:material',
+        'building:colour', 'roof:colour', 'construction', 'building:min_level'
+      ];
+      
+      commonProps.forEach(propName => {
+        try {
+          if (feature.hasProperty && feature.hasProperty(propName)) {
+            propertyNames.push(propName);
+          } else if (feature.getProperty) {
+            const value = feature.getProperty(propName);
+            if (value !== undefined && value !== null) {
+              propertyNames.push(propName);
+            }
+          }
+        } catch (e) {
+          // Ignore errors when checking individual properties
+        }
+      });
+    }
+    
+    // Get property values
+    propertyNames.forEach(propertyName => {
+      try {
+        let value;
+        if (feature.getProperty) {
+          value = feature.getProperty(propertyName);
+        } else if (feature[propertyName] !== undefined) {
+          value = feature[propertyName];
+        }
+        
+        if (value !== undefined && value !== null && value !== '') {
+          properties[propertyName] = value;
+        }
+      } catch (e) {
+        log(`Error getting property ${propertyName}: ${e.message}`);
+      }
+    });
+    
+    // Display building information
+    displayBuildingInfo(properties);
+    
+    // Log for debugging
+    log(`Building clicked with ${Object.keys(properties).length} properties`);
+    
+  } catch (error) {
+    log(`Error handling building click: ${error.message}`);
+    // Show a basic message even if we can't get properties
+    displayBuildingInfo({ 'Building': 'OSM Building (properties not accessible)' });
+  }
+}
+
+// Display building information
+function displayBuildingInfo(properties) {
+  const infoDiv = document.getElementById('vehicleInfo');
+  const detailsDiv = document.getElementById('vehicleDetails');
+  
+  if (!infoDiv || !detailsDiv) {
+    log("Building info elements not found in DOM");
+    return;
+  }
+  
+  // Build HTML content for building properties
+  let html = '<h3>Building Information</h3>';
+  
+  if (Object.keys(properties).length === 0) {
+    html += '<p>No properties available for this building.</p>';
+  } else {
+    html += '<table style="width: 100%; font-size: 12px;">';
+    
+    // Sort properties to show most important ones first
+    const sortedKeys = Object.keys(properties).sort((a, b) => {
+      const importantProps = ['name', 'building', 'height', 'levels', 'building:levels', 'addr:street', 'addr:housenumber'];
+      const aIndex = importantProps.indexOf(a);
+      const bIndex = importantProps.indexOf(b);
+      
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+    
+    sortedKeys.forEach(key => {
+      const value = properties[key];
+      const displayKey = key.replace(/[:_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      html += `<tr><td style="font-weight: bold; padding: 2px 5px; vertical-align: top;">${displayKey}:</td><td style="padding: 2px 5px;">${value}</td></tr>`;
+    });
+    
+    html += '</table>';
+  }
   
   // Update content and show panel
   detailsDiv.innerHTML = html;
