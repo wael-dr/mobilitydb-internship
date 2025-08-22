@@ -12,10 +12,112 @@ const MOBILITY_CONFIG = {
   vehicleHeightOffset: 2, // meters above ground
   maxVehicles: 50000,        // maximum number of vehicles to display for performance
   defaultVehicleScale: 1.5,
-  vehicleColors: {
-    bus: Cesium.Color.fromCssColorString('#3498db'),
-    tram: Cesium.Color.fromCssColorString('#e74c3c'),
-    metro: Cesium.Color.fromCssColorString('#2ecc71')
+  // Map each line to its color. Fill in the colors for each line as needed:
+  lineColors: {
+    // All lines 1 to 96 use the same default color. Change as needed.
+    '1': Cesium.Color.fromCssColorString('#b92c92'),
+    '2': Cesium.Color.fromCssColorString('#f68933'),
+    '3': Cesium.Color.fromCssColorString('#c8d100'),
+    '4': Cesium.Color.fromCssColorString('#f16f91'),
+    '5': Cesium.Color.fromCssColorString('#ffcf04'),
+    '6': Cesium.Color.fromCssColorString('#0080b2'),
+    '7': Cesium.Color.fromCssColorString('#fff06e'),
+    '8': Cesium.Color.fromCssColorString('#169fdb'),
+    '9': Cesium.Color.fromCssColorString('#c44f97'),
+    '10': Cesium.Color.fromCssColorString('#8f4199'),
+    '11': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '12': Cesium.Color.fromCssColorString('#489224'),
+    '13': Cesium.Color.fromCssColorString('#84c8eb'),
+    '14': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '15': Cesium.Color.fromCssColorString('#005090'),
+    '16': Cesium.Color.fromCssColorString('#888888'),
+    '17': Cesium.Color.fromCssColorString('#e5442e'),
+    '18': Cesium.Color.fromCssColorString('#84c8eb'),
+    '19': Cesium.Color.fromCssColorString('#de3b21'),
+    '20': Cesium.Color.fromCssColorString('#ffcf06'),
+    '21': Cesium.Color.fromCssColorString('#ffeb00'),
+    '22': Cesium.Color.fromCssColorString('#c8d100'),
+    '23': Cesium.Color.fromCssColorString('#005090'),
+    '24': Cesium.Color.fromCssColorString('#c8d100'),
+    '25': Cesium.Color.fromCssColorString('#8e004d'),
+    '26': Cesium.Color.fromCssColorString('#888888'),
+    '27': Cesium.Color.fromCssColorString('#84c8eb'),
+    '28': Cesium.Color.fromCssColorString('#e5442e'),
+    '29': Cesium.Color.fromCssColorString('#ed803c'),
+    '30': Cesium.Color.fromCssColorString('#888888'),
+    '31': Cesium.Color.fromCssColorString('#ed803c'),
+    '32': Cesium.Color.fromCssColorString('#ffeb00'),
+    '33': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '34': Cesium.Color.fromCssColorString('#eabc00'),
+    '35': Cesium.Color.fromCssColorString('#336195'),
+    '36': Cesium.Color.fromCssColorString('#84c8eb'),
+    '37': Cesium.Color.fromCssColorString('#336195'),
+    '38': Cesium.Color.fromCssColorString('#9d8eb3'),
+    '39': Cesium.Color.fromCssColorString('#de3b21'),
+    '40': Cesium.Color.fromCssColorString('#888888'),
+    '41': Cesium.Color.fromCssColorString('#84c8eb'),
+    '42': Cesium.Color.fromCssColorString('#489224'),
+    '43': Cesium.Color.fromCssColorString('#ae7007'),
+    '44': Cesium.Color.fromCssColorString('#e3ba12'),
+    '45': Cesium.Color.fromCssColorString('#9d8eb3'),
+    '46': Cesium.Color.fromCssColorString('#e5442e'),
+    '47': Cesium.Color.fromCssColorString('#e5442e'),
+    '48': Cesium.Color.fromCssColorString('#ed7807'),
+    '49': Cesium.Color.fromCssColorString('#005090'),
+    '50': Cesium.Color.fromCssColorString('#c8d100'),
+    '51': Cesium.Color.fromCssColorString('#e3ba12'),
+    '52': Cesium.Color.fromCssColorString('#ffdc01'),
+    '53': Cesium.Color.fromCssColorString('#489224'),
+    '54': Cesium.Color.fromCssColorString('#e5442e'),
+    '55': Cesium.Color.fromCssColorString('#e3ba12'),
+    '56': Cesium.Color.fromCssColorString('#ed7807'),
+    '57': Cesium.Color.fromCssColorString('#e5442e'),
+    '58': Cesium.Color.fromCssColorString('#489224'),
+    '59': Cesium.Color.fromCssColorString('#ae7007'),
+    '60': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '61': Cesium.Color.fromCssColorString('#ffdc01'),
+    '62': Cesium.Color.fromCssColorString('#ff9ec2'),
+    '63': Cesium.Color.fromCssColorString('#84c8eb'),
+    '64': Cesium.Color.fromCssColorString('#e5442e'),
+    '65': Cesium.Color.fromCssColorString('#eabc00'),
+    '66': Cesium.Color.fromCssColorString('#005090'),
+    '67': Cesium.Color.fromCssColorString('#888888'),
+    '68': Cesium.Color.fromCssColorString('#888888'),
+    '69': Cesium.Color.fromCssColorString('#ed803c'),
+    '70': Cesium.Color.fromCssColorString('#b4bd10'),
+    '71': Cesium.Color.fromCssColorString('#489224'),
+    '72': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '73': Cesium.Color.fromCssColorString('#f3b4ce'),
+    '74': Cesium.Color.fromCssColorString('#a67cb0'),
+    '75': Cesium.Color.fromCssColorString('#ffeb00'),
+    '76': Cesium.Color.fromCssColorString('#ffeb00'),
+    '77': Cesium.Color.fromCssColorString('#489224'),
+    '78': Cesium.Color.fromCssColorString('#9d8eb3'),
+    '79': Cesium.Color.fromCssColorString('#005090'),
+    '80': Cesium.Color.fromCssColorString('#489224'),
+    '81': Cesium.Color.fromCssColorString('#489224'),
+    '82': Cesium.Color.fromCssColorString('#84c8eb'),
+    '83': Cesium.Color.fromCssColorString('#c8d100'),
+    '84': Cesium.Color.fromCssColorString('#ffeb00'),
+    '85': Cesium.Color.fromCssColorString('#e5442e'),
+    '86': Cesium.Color.fromCssColorString('#005090'),
+    '87': Cesium.Color.fromCssColorString('#489224'),
+    '88': Cesium.Color.fromCssColorString('#b4bd10'),
+    '89': Cesium.Color.fromCssColorString('#ed803c'),
+    '90': Cesium.Color.fromCssColorString('#976a0e'),
+    '91': Cesium.Color.fromCssColorString('#5a9636'),
+    '92': Cesium.Color.fromCssColorString('#de3b21'),
+    '93': Cesium.Color.fromCssColorString('#fc8306'),
+    '94': Cesium.Color.fromCssColorString('#ffeb00'),
+    '95': Cesium.Color.fromCssColorString('#005090'),
+    '96': Cesium.Color.fromCssColorString('#a12944'),
+    '97': Cesium.Color.fromCssColorString('#ab0534'),
+    '98': Cesium.Color.fromCssColorString('#ed803c'),
+    '99': Cesium.Color.fromCssColorString('#888888'),
+    '100': Cesium.Color.fromCssColorString('#888888'),
+    '101': Cesium.Color.fromCssColorString('#9185b1'),
+    '102': Cesium.Color.fromCssColorString('#000000'),
+    '103': Cesium.Color.fromCssColorString('#a86a16'),
   },
   // API Authentication
   apiHeaders: {            // Headers to send with API requests
@@ -829,7 +931,9 @@ function syncCesiumClockWithData() {
 
 // Add appropriate 3D model to vehicle entity
 function addVehicleModel(entity, vehicleType) {
-  const color = MOBILITY_CONFIG.vehicleColors[vehicleType] || Cesium.Color.YELLOW;
+  // Use the line property to get the color
+  const line = entity.properties.line;
+  const color = MOBILITY_CONFIG.lineColors[line] || Cesium.Color.fromCssColorString('#888888');
   const scale = MOBILITY_CONFIG.defaultVehicleScale;
 
   // Use boxes with appropriate dimensions for each vehicle type
@@ -853,7 +957,7 @@ function addVehicleModel(entity, vehicleType) {
     case 'metro':
       entity.box = new Cesium.BoxGraphics({
         dimensions: new Cesium.Cartesian3(20 * scale, 3 * scale, 3.5 * scale),
-        material: color,
+        material: color.withAlpha ? color.withAlpha(0.5) : color,
         outline: true,
         outlineColor: Cesium.Color.BLACK
       });
@@ -1035,9 +1139,9 @@ function deselectVehicle() {
       entity.box.material = entity._originalMaterial;
     } else if (entity.point && entity._originalPixelSize) {
         entity.point.pixelSize = entity._originalPixelSize;
-        // Restore original color based on type
-        const vehicleType = entity.properties.type.getValue();
-        entity.point.color = MOBILITY_CONFIG.vehicleColors[vehicleType] || Cesium.Color.YELLOW;
+  // Restore original color based on line
+  const line = entity.properties.line.getValue();
+  entity.point.color = MOBILITY_CONFIG.lineColors[line] || Cesium.Color.fromCssColorString('#888888');
     }
   }
   
