@@ -6,15 +6,14 @@
 // Configuration
 const MOBILITY_CONFIG = {
   apiUrl: 'https://api.mobilitytwin.brussels/stib/trips',  // Trips endpoint for moving vehicles
-  updateInterval: 5000, // 5 seconds
+  updateInterval: 10000, // 10 seconds
   timeRange: 120, // seconds - time range for API data (default 2 minutes)
   maxRetries: 3,
   vehicleHeightOffset: 2, // meters above ground
-  maxVehicles: 50000,        // maximum number of vehicles to display for performance
+  maxVehicles: 999999,        // maximum number of vehicles to display for performance
   defaultVehicleScale: 1.5,
   // Map each line to its color. Fill in the colors for each line as needed:
   lineColors: {
-    // All lines 1 to 96 use the same default color. Change as needed.
     '1': Cesium.Color.fromCssColorString('#b92c92'),
     '2': Cesium.Color.fromCssColorString('#f68933'),
     '3': Cesium.Color.fromCssColorString('#c8d100'),
@@ -937,29 +936,33 @@ function addVehicleModel(entity, vehicleType) {
   const scale = MOBILITY_CONFIG.defaultVehicleScale;
 
   // Use boxes with appropriate dimensions for each vehicle type
+  const boxDistanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, 5000);
   switch(vehicleType) {
     case 'bus':
       entity.box = new Cesium.BoxGraphics({
         dimensions: new Cesium.Cartesian3(12 * scale, 3 * scale, 3 * scale),
         material: color,
-        outline: true,
-        outlineColor: Cesium.Color.BLACK
+        outline: false,
+        outlineColor: Cesium.Color.BLACK,
+        distanceDisplayCondition: boxDistanceDisplayCondition
       });
       break;
     case 'tram':
       entity.box = new Cesium.BoxGraphics({
         dimensions: new Cesium.Cartesian3(18 * scale, 2.5 * scale, 3.5 * scale),
         material: color,
-        outline: true,
-        outlineColor: Cesium.Color.BLACK
+        outline: false,
+        outlineColor: Cesium.Color.BLACK,
+        distanceDisplayCondition: boxDistanceDisplayCondition
       });
       break;
     case 'metro':
       entity.box = new Cesium.BoxGraphics({
         dimensions: new Cesium.Cartesian3(20 * scale, 3 * scale, 3.5 * scale),
         material: color.withAlpha ? color.withAlpha(0.5) : color,
-        outline: true,
-        outlineColor: Cesium.Color.BLACK
+        outline: false,
+        outlineColor: Cesium.Color.BLACK,
+        distanceDisplayCondition: boxDistanceDisplayCondition
       });
       break;
     default:
