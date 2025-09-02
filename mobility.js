@@ -6,8 +6,8 @@
 // Configuration
 const MOBILITY_CONFIG = {
   apiUrl: 'https://api.mobilitytwin.brussels/stib/trips',  // Trips endpoint for moving vehicles
-  updateInterval: 10000, // 10 seconds
-  timeRange: 120, // seconds - time range for API data (default 2 minutes)
+  updateInterval: 10000, // seconds
+  timeRange: 120, // seconds - time range for API data
   maxRetries: 3,
   vehicleHeightOffset: 2, // meters above ground
   maxVehicles: 999999,        // maximum number of vehicles to display for performance
